@@ -24,6 +24,8 @@
 -module(gingko).
 -include("gingko.hrl").
 
+%%----------- System Control -------------%%
+-export([start/2,stop/1]).
 
 %%---------------- API -------------------%%
 -export([
@@ -35,6 +37,13 @@
   set_stable/1
 ]).
 
+%% @doc Start the logging server.
+-spec start(term(), term()) -> {ok, pid()} | ignore | {error, term()}.
+start(_Type, _Args) -> gingko_sup:start_link().
+
+%TODO -spec
+stop(_State) ->
+  ok.
 
 %%====================================================================
 %% API functions
