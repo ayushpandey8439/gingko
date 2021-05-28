@@ -70,16 +70,20 @@ get_version(Key, Type) -> get_version(Key, Type, undefined).
 get_version(Key, Type, MaximumSnapshotTime) ->
   logger:info(#{function => "GET_VERSION", key => Key, type => Type, snapshot_timestamp => MaximumSnapshotTime}),
 
-  %% This part needs caching/optimization
+  %% LEGACY: This part needs caching/optimization
   %% Currently the steps to materialize are as follows:
   %% * read ALL log entries from the persistent log file
   %% * filter log entries by key
   %% * filter furthermore only by committed operations
   %% * materialize operations into materialized version
   %% * return that materialized version
-  %% TODO: ask the fill daemon for the object instead of materialising it.
 
-  {ok, MaterializedObject} = cache_manager:get_from_cache(cacheidentifier,Key,Type,MaximumSnapshotTime),
+  %% CURRENT: ask the cache for the object.
+  %% If tha cache has that object, it is returned.
+  %% If the cache does not have it, it is materialised from the log and stored in the cache.
+  %% All subsequent reads of the object will return from the cache without reading the whole log.
+
+  {ok, MaterializedObject} = cache_manager:get_from_cache(Key,Type,MaximumSnapshotTime),
   logger:info(#{step => "materialize", materialized => MaterializedObject}).
 
 

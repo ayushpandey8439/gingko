@@ -13,8 +13,8 @@
   code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(TABLE_CONCURRENCY, {read_concurrency,true}).
--record(cache_mgr_state, {}).
+-define(TABLE_CONCURRENCY, {read_concurrency, true}).
+-record(cache_mgr_state, {cacheidentifier}).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
@@ -26,23 +26,26 @@ start_link(CacheIdentifier) ->
 init(CacheIdentifier) ->
   logger:notice(#{
     action => "Starting Cache manager server",
-    registered_as => ?MODULE
+    registered_as => ?MODULE,
+    pid => self()
   }),
   ets:new(CacheIdentifier,[named_table,?TABLE_CONCURRENCY]),
-  {ok, #cache_mgr_state{}}.
+  {ok, #cache_mgr_state{cacheidentifier = CacheIdentifier}}.
 
-handle_call({put_in_cache,CacheIdentifier, Data},_From, State = #cache_mgr_state{}) ->
-  Result = ets:insert(CacheIdentifier, {Data}),
+handle_call(ping,_From, State = #cache_mgr_state{}) ->
+  {reply, {ok, hello}, State};
+handle_call({put_in_cache, Data},_From, State = #cache_mgr_state{}) ->
+  Result = ets:insert(State#cache_mgr_state.cacheidentifier, {Data}),
   {reply, {ok, Result}, State};
 
-handle_call({get_from_cache, CacheIdentifier, ObjectKey,Type,MaximumSnapshotTime }, _From, State = #cache_mgr_state{}) ->
-  io:format("Check if the cache has the object ~n"),
-  Reply = case ets:lookup(CacheIdentifier,ObjectKey) of
+handle_call({get_from_cache, ObjectKey,Type,MaximumSnapshotTime }, _From, State = #cache_mgr_state{}) ->
+  Reply = case ets:lookup(State#cache_mgr_state.cacheidentifier,ObjectKey) of
     [] ->
-      io:format("Calling fill daemon ~n"),
-      fill_daemon:build(ObjectKey,Type,MaximumSnapshotTime); %% Maximum time not used yet.
+      MaterializedObject = fill_daemon:build(ObjectKey,Type,MaximumSnapshotTime),
+      ets:insert(State#cache_mgr_state.cacheidentifier,{ObjectKey,Type,MaterializedObject}),
+      {ObjectKey,Type,MaterializedObject};
     [CacheObject] ->
-      {ok,CacheObject}
+      CacheObject
   end,
   {reply, {ok, Reply}, State}.
 

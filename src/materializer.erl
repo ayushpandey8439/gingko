@@ -68,7 +68,6 @@ update_snapshot(Type, Snapshot, Op) ->
 materialize_clocksi_payload(_Type, Snapshot, []) ->
     Snapshot;
 materialize_clocksi_payload(Type, Snapshot, [ClocksiPayload | Rest]) ->
-    io:format("Clock Si Payload is ~p ~n",[ClocksiPayload#clocksi_payload.op_param]),
     Effect = ClocksiPayload#clocksi_payload.op_param,
     logger:info("Materialize: ~p", [Effect]),
     case update_snapshot(Type, Snapshot, Effect) of

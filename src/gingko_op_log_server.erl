@@ -105,17 +105,15 @@ handle_cast(start_recovery, State) when State#state.recovering == true ->
   AsyncRecovery = fun() ->
     NextIndex = recover_all_logs(LogName, Receiver, LogServer),
     %% TODO recovery
-    NextIndex = 0,
-    gen_server:cast(GenServer, {finish_recovery, NextIndex})
+    NextIndex1 = 0,
+    gen_server:cast(GenServer, {finish_recovery, NextIndex1})
                   end,
   spawn_link(AsyncRecovery),
   {noreply, State};
 
 handle_cast({finish_recovery, NextIndexMap}, State) ->
-  % TODO
   % reply to waiting processes to try their requests again
   reply_retry_to_waiting(State#state.waiting_for_reply),
-
   % save write-able index map and finish recovery
   logger:info("[~p] Recovery process finished", [State#state.log_name]),
   {noreply, State#state{recovering = false, next_index = NextIndexMap, waiting_for_reply = []}};
@@ -201,9 +199,7 @@ handle_call({read_log_entries, FirstIndex, LastIndex, F, Acc}, _From, State) ->
   Waiting = State#state.waiting_for_reply,
   %% simple implementation, read ALL terms, then filter
   %% can be improved performance wise, stop at last index
-  logger:info("Calling log read from sync server"),
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
-  logger:info("Log read complete, LogServer returned the log."),
   %% TODO this will most likely cause a timeout to the gen_server caller, what to do?
   Terms = read_all(Log),
 

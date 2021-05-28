@@ -35,7 +35,6 @@
 
 build(Key, Type, MaximumSnapshotTime) ->
   {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all),
-  io:format("log read complete. Data is ~p ~n",[Data]),
   logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
 
   {Ops, CommittedOps} = log_utilities:filter_terms_for_key(Data, {key, Key}, undefined, MaximumSnapshotTime, dict:new(), dict:new()),
@@ -45,9 +44,4 @@ build(Key, Type, MaximumSnapshotTime) ->
     {ok, PayloadForKey} -> PayloadForKey = PayloadForKey;
     error -> PayloadForKey = []
   end,
-  io:format("Filtered log calculated:::  ~p ~n",[PayloadForKey]),
-
-  MaterializedObject = materializer:materialize_clocksi_payload(Type, materializer:create_snapshot(Type), PayloadForKey),
-  cache_manager:put_in_cache(cacheidentifier,MaterializedObject),
-  io:format("Object materialization complete  ~p ~n",[MaterializedObject]),
-  {ok,MaterializedObject}.
+  materializer:materialize_clocksi_payload(Type, materializer:create_snapshot(Type), PayloadForKey).
