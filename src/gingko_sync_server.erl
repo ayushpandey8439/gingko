@@ -2,8 +2,7 @@
 %% @hidden
 -module(gingko_sync_server).
 
-%% API
--export([]).
+
 
 -behaviour(gen_server).
 
@@ -16,12 +15,11 @@
   log_name :: atom()
 }).
 
-
+%% API
 -export([start_link/1]).
 -export([log_dir_base/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2, code_change/3]).
-
 
 
 %% @doc Starts the log sync timing server for given node
@@ -95,6 +93,7 @@ code_change(_OldVsn, _State, _Extra) ->
 %% @doc ensures directory where the log is expected and opens the log file.
 %%      Recovers if required, logging found terms and bad bytes
 open_log(LogName) ->
+  logger:info("Trying to open log ~p",[LogName]),
   filelib:ensure_dir(log_dir_base(LogName)),
 
   LogFile = log_dir_base(LogName) ++ "OP_LOG",

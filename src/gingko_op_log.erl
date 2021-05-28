@@ -98,6 +98,7 @@ read_log_entries(Log, FirstIndex, LastIndex) ->
 -spec read_log_entries(node(), integer(), integer() | all,
     fun((#log_record{}, Acc) -> Acc), Acc) -> {ok, Acc}.
 read_log_entries(Log, FirstIndex, LastIndex, FoldFunction, Accumulator) ->
+  logger:info("called readlog entries in op_log"),
   case gen_server:call(Log, {read_log_entries, FirstIndex, LastIndex, FoldFunction, Accumulator}) of
     retry -> logger:debug("Retrying request"), read_log_entries(Log, FirstIndex, LastIndex, FoldFunction, Accumulator);
     Reply -> Reply

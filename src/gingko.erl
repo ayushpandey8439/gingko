@@ -77,23 +77,10 @@ get_version(Key, Type, MaximumSnapshotTime) ->
   %% * filter furthermore only by committed operations
   %% * materialize operations into materialized version
   %% * return that materialized version
+  %% TODO: ask the fill daemon for the object instead of materialising it.
 
-  %% TODO Get up to time SnapshotTime instead of all
-  {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all),
-  logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
-
-  {Ops, CommittedOps} = log_utilities:filter_terms_for_key(Data, {key, Key}, undefined, MaximumSnapshotTime, dict:new(), dict:new()),
-  logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
-
-  case dict:find(Key, CommittedOps) of
-    {ok, PayloadForKey} -> PayloadForKey = PayloadForKey;
-    error -> PayloadForKey = []
-  end,
-
-  MaterializedObject = materializer:materialize_clocksi_payload(Type, materializer:create_snapshot(Type), PayloadForKey),
-  logger:info(#{step => "materialize", materialized => MaterializedObject}),
-
-  {ok, MaterializedObject}.
+  {ok, MaterializedObject} = cache_manager:get_from_cache(cacheidentifier,Key,Type,MaximumSnapshotTime),
+  logger:info(#{step => "materialize", materialized => MaterializedObject}).
 
 
 %% @doc Applies an update for the given key for given transaction id with a calculated valid downstream operation.
@@ -116,6 +103,7 @@ update(Key, Type, TransactionId, DownstreamOp) ->
       tx_id = TransactionId,
       op_type = update,
       log_payload = #update_log_payload{key = Key, type = Type , op = DownstreamOp}},
+
   LogRecord = #log_record {
     version = ?LOG_RECORD_VERSION,
     op_number = #op_number{},        % not used

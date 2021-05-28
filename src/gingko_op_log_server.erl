@@ -201,8 +201,9 @@ handle_call({read_log_entries, FirstIndex, LastIndex, F, Acc}, _From, State) ->
   Waiting = State#state.waiting_for_reply,
   %% simple implementation, read ALL terms, then filter
   %% can be improved performance wise, stop at last index
-
-  {ok, Log} = gen_server:call(LogServer, {get_log, LogName}),
+  logger:info("Calling log read from sync server"),
+  {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
+  logger:info("Log read complete, LogServer returned the log."),
   %% TODO this will most likely cause a timeout to the gen_server caller, what to do?
   Terms = read_all(Log),
 

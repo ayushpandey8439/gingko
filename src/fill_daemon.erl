@@ -25,19 +25,29 @@
 %% List of the contributors to the development of Antidote: see AUTHORS file.
 %% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
--define(TABLE_CONCURRENCY, {read_concurrency,true}).
+-module(fill_daemon).
+-include("gingko.hrl").
 
--module(cache_manager).
 -author("pandey").
 
 %% API
--export([create_cache/1,read_from_cache/2]).
+-export([build/3]).
 
--spec create_cache(term()) -> ets:tab().
-create_cache(CacheIdentifier)->
-  ets:new(CacheIdentifier,[named_table,?TABLE_CONCURRENCY]).
+build(Key, Type, MaximumSnapshotTime) ->
+  {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all),
+  io:format("log read complete. Data is ~p ~n",[Data]),
+  logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
 
-%%-spec read_from_cache(term(),term())
-read_from_cache(CacheIdentifier, ObjectKey)->
-  ets:lookup(CacheIdentifier,ObjectKey).
+  {Ops, CommittedOps} = log_utilities:filter_terms_for_key(Data, {key, Key}, undefined, MaximumSnapshotTime, dict:new(), dict:new()),
+  logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
 
+  case dict:find(Key, CommittedOps) of
+    {ok, PayloadForKey} -> PayloadForKey = PayloadForKey;
+    error -> PayloadForKey = []
+  end,
+  io:format("Filtered log calculated:::  ~p ~n",[PayloadForKey]),
+
+  MaterializedObject = materializer:materialize_clocksi_payload(Type, materializer:create_snapshot(Type), PayloadForKey),
+  cache_manager:put_in_cache(cacheidentifier,MaterializedObject),
+  io:format("Object materialization complete  ~p ~n",[MaterializedObject]),
+  {ok,MaterializedObject}.

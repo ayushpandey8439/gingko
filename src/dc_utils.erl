@@ -10,4 +10,10 @@
 -author("pandey").
 
 %% API
--export([]).
+-export([now/1]).
+
+-spec now('micro_seconds' | 'milli_seconds') -> non_neg_integer().
+now(Granularity) when Granularity == micro_seconds->
+  erlang:system_time(Granularity);
+now(Granularity) when Granularity == milli_seconds ->
+  now(micro_seconds) div 1000.
