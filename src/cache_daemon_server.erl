@@ -4,7 +4,7 @@
 %%% @doc
 %%% @end
 %%%-------------------------------------------------------------------
--module(cache_manager_server).
+-module(cache_daemon_server).
 
 -behaviour(gen_server).
 
@@ -14,7 +14,7 @@
 
 -define(SERVER, ?MODULE).
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
--record(cache_mgr_state, {cacheidentifier}).
+-record(cache_mgr_state, {cacheidentifier,log_seq = #{}}).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
@@ -41,13 +41,19 @@ handle_call({put_in_cache, Data},_From, State = #cache_mgr_state{}) ->
 handle_call({get_from_cache, ObjectKey,Type,MaximumSnapshotTime }, _From, State = #cache_mgr_state{}) ->
   Reply = case ets:lookup(State#cache_mgr_state.cacheidentifier,ObjectKey) of
     [] ->
-      MaterializedObject = fill_daemon:build(ObjectKey,Type,MaximumSnapshotTime),
+      {LastLSN, MaterializedObject} = fill_daemon:build(ObjectKey,Type,MaximumSnapshotTime),
       ets:insert(State#cache_mgr_state.cacheidentifier,{ObjectKey,Type,MaterializedObject}),
       {ObjectKey,Type,MaterializedObject};
     [CacheObject] ->
+      %% TODO Check if there have been new operations on the object beyond the clock timestamp atm. If yes, rematerialise it and store it in the cache.
       CacheObject
   end,
-  {reply, {ok, Reply}, State}.
+  {reply, {ok, Reply}, State};
+
+handle_call({invalidate_objects, Keys}, _From, State = #cache_mgr_state{}) ->
+  lists:foreach(fun(ObjectKey) -> ets:delete(State#cache_mgr_state.cacheidentifier,ObjectKey) end, Keys),
+  {reply, ok, State}.
+
 
 handle_cast(_Request, State = #cache_mgr_state{}) ->
   {noreply, State}.

@@ -76,15 +76,17 @@ get_version(Key, Type, MaximumSnapshotTime) ->
   %% * filter log entries by key
   %% * filter furthermore only by committed operations
   %% * materialize operations into materialized version
-  %% * return that materialized version
+  %% * return that materialized version.
 
   %% CURRENT: ask the cache for the object.
   %% If tha cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
 
-  {ok, MaterializedObject} = cache_manager:get_from_cache(Key,Type,MaximumSnapshotTime),
-  logger:info(#{step => "materialize", materialized => MaterializedObject}).
+  {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MaximumSnapshotTime),
+  io:format("Maerialised Object: ~p ~n~n",[MaterializedObject]),
+  logger:info(#{step => "materialize", materialized => MaterializedObject}),
+  {ok, MaterializedObject}.
 
 
 %% @doc Applies an update for the given key for given transaction id with a calculated valid downstream operation.
@@ -146,6 +148,7 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
   },
 
   lists:map(fun(_Key) -> gingko_op_log:append(?LOGGING_MASTER, LogRecord) end, Keys),
+  cache_daemon:invalidate_cache_objects(Keys), %% Upon commiting objects, we invalidate the cache so the objects are then rebuilt on reading. This should be moved to the evict daemon.  
   ok.
 
 

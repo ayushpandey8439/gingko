@@ -105,8 +105,7 @@ handle_cast(start_recovery, State) when State#state.recovering == true ->
   AsyncRecovery = fun() ->
     NextIndex = recover_all_logs(LogName, Receiver, LogServer),
     %% TODO recovery
-    NextIndex1 = 0,
-    gen_server:cast(GenServer, {finish_recovery, NextIndex1})
+    gen_server:cast(GenServer, {finish_recovery, NextIndex})
                   end,
   spawn_link(AsyncRecovery),
   {noreply, State};
@@ -282,7 +281,7 @@ recover_all_logs(LogName, Receiver, LogServer) ->
     end,
 
     LastIndex
-                   end,
+  end,
 
   {ok, LogFiles} = file:list_dir(LogPath),
 

@@ -5,7 +5,7 @@
 
 %% API
 -export([
-  filter_terms_for_key/6
+  filter_terms_for_key/7
 ]).
 
 
@@ -27,15 +27,17 @@
     snapshot_time(),
     snapshot_time(),
     dict:dict(txid(), [any_log_payload()]),
-    dict:dict(key(), [#clocksi_payload{}])
+    dict:dict(key(), [#clocksi_payload{}]),
+    integer()
 ) -> {
   dict:dict(txid(), [any_log_payload()]),
-  dict:dict(key(), [#clocksi_payload{}])
+  dict:dict(key(), [#clocksi_payload{}]),
+  integer()
 }.
-filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOpsDict) ->
-  {Ops, CommittedOpsDict};
+filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN) ->
+  {Ops, CommittedOpsDict,LastLSN};
 
-filter_terms_for_key([{_Index, LogRecord} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict) ->
+filter_terms_for_key([{Index, LogRecord} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN) ->
   logger:debug("Log record ~p", [LogRecord]),
 
   #log_record{log_operation = LogOperation} = check_log_record_version(LogRecord),
@@ -43,11 +45,11 @@ filter_terms_for_key([{_Index, LogRecord} | OtherRecords], Key, MinSnapshotTime,
   #log_operation{tx_id = TxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
   case OpType of
     update ->
-      handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict);
+      handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,Index);
     commit ->
-      handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict);
+      handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,Index);
     _ ->
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict)
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN)
   end.
 
 
@@ -62,21 +64,23 @@ filter_terms_for_key([{_Index, LogRecord} | OtherRecords], Key, MinSnapshotTime,
     snapshot_time() | undefined,              % minimal snapshot time
     snapshot_time(),                          % maximal snapshot time
     dict:dict(txid(), [any_log_payload()]),   % accumulator for any type of operation records (possibly uncommitted)
-    dict:dict(key(), [#clocksi_payload{}])    % accumulator for committed operations
+    dict:dict(key(), [#clocksi_payload{}]),   % accumulator for committed operations
+    integer()
+
 ) -> {
   dict:dict(txid(), [any_log_payload()]),     % all accumulated operations for key and snapshot filter
-  dict:dict(key(), [#clocksi_payload{}])      % accumulated committed operations for key and snapshot filter
+  dict:dict(key(), [#clocksi_payload{}])     % accumulated committed operations for key and snapshot filter
 }.
-handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict) ->
+handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN) ->
   #update_log_payload{key = PayloadKey} = OpPayload,
   case (Key == {key, PayloadKey}) or (Key == undefined) of
     true ->
       % key matches: append to all operations accumulator
       filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime,
-        dict:append(TxId, OpPayload, Ops), CommittedOpsDict);
+        dict:append(TxId, OpPayload, Ops), CommittedOpsDict,LastLSN);
     false ->
       % key does not match: skip
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict)
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN)
   end.
 
 
@@ -91,12 +95,13 @@ handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
     snapshot_time() | undefined,              % minimal snapshot time
     snapshot_time(),                          % maximal snapshot time
     dict:dict(txid(), [any_log_payload()]),   % accumulator for any type of operation records (possibly uncommitted)
-    dict:dict(key(), [#clocksi_payload{}])    % accumulator for committed operations
+    dict:dict(key(), [#clocksi_payload{}]),   % accumulator for committed operations
+    integer()
 ) -> {
   dict:dict(txid(), [any_log_payload()]),     % all accumulated operations for key and snapshot filter
   dict:dict(key(), [#clocksi_payload{}])      % accumulated committed operations for key and snapshot filter
 }.
-handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict) ->
+handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN) ->
 
   #commit_log_payload{commit_time = {DcId, TxCommitTime}, snapshot_time = SnapshotTime} = OpPayload,
 
@@ -121,10 +126,11 @@ handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
           end
                     end, CommittedOpsDict, OpsList),
       %% TODO committed ops are not found in the ops accumulator?
+
       filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, dict:erase(TxId, Ops),
-        NewCommittedOpsDict);
+        NewCommittedOpsDict,LastLSN);
     error ->
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict)
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN)
   end.
 
 
