@@ -29,7 +29,8 @@ fixture_test_() ->
         [
             %%fun counter_write_multiOP_test/1
             fun counter_write_singleOP_test/1,
-            fun cache_invalidation_test_single_object/1
+            fun cache_invalidation_test_single_object/1,
+            fun cache_invalidation_test_multi_object/1
             %%,fun writeupdate_test/1
             %%,fun write_and_commit_test/1
         ]
@@ -102,3 +103,21 @@ cache_invalidation_test_single_object(_Config) ->
     gingko:commit([counter_single], TransactionId, {1, 1234}, vectorclock:new()),
     {ok, Data2} = gingko:get_version(counter_single, Type, vectorclock:new()),
     ?_assertEqual({counter_single,Type,30},Data2).
+
+cache_invalidation_test_multi_object(_Config) ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 10,
+    gingko:update(counter_single1, Type, TransactionId, DownstreamOp),
+    gingko:commit([counter_single1], TransactionId, {1, 1234}, vectorclock:new()),
+    {ok, Data0} = gingko:get_version(counter_single1, Type, vectorclock:new()),
+    ?_assertEqual({counter_single1,Type,10},Data0),
+    gingko:update(counter_single1, Type, TransactionId, DownstreamOp),
+    gingko:update(counter_single2, Type, TransactionId, DownstreamOp),
+    {ok, Data1} = gingko:get_version(counter_single1, Type, vectorclock:new()),
+    ?_assertEqual({counter_single1,Type,10},Data1), %% Operation not committed yet so the updates are not visible.
+    gingko:commit([counter_single1,counter_single2], TransactionId, {1, 1234}, vectorclock:new()),
+    {ok, Data2} = gingko:get_version(counter_single1, Type, vectorclock:new()),
+    {ok, Data3} = gingko:get_version(counter_single2, Type, vectorclock:new()),
+    ?_assertEqual({counter_single1,Type,20},Data2),
+    ?_assertEqual({counter_single2,Type,10},Data3).
