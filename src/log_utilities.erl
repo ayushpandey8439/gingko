@@ -69,9 +69,10 @@ filter_terms_for_key([{Index, LogRecord} | OtherRecords], Key, MinSnapshotTime, 
 
 ) -> {
   dict:dict(txid(), [any_log_payload()]),     % all accumulated operations for key and snapshot filter
-  dict:dict(key(), [#clocksi_payload{}])     % accumulated committed operations for key and snapshot filter
+  dict:dict(key(), [#clocksi_payload{}]),     % accumulated committed operations for key and snapshot filter
+  integer()
 }.
-handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN) ->
+handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, LastLSN) ->
   #update_log_payload{key = PayloadKey} = OpPayload,
   case (Key == {key, PayloadKey}) or (Key == undefined) of
     true ->
@@ -99,7 +100,8 @@ handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
     integer()
 ) -> {
   dict:dict(txid(), [any_log_payload()]),     % all accumulated operations for key and snapshot filter
-  dict:dict(key(), [#clocksi_payload{}])      % accumulated committed operations for key and snapshot filter
+  dict:dict(key(), [#clocksi_payload{}]),      % accumulated committed operations for key and snapshot filter
+  integer()
 }.
 handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,LastLSN) ->
 

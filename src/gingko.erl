@@ -51,7 +51,8 @@ stop(_State) ->
 
 %% @equiv get_version(Key, Type, undefined)
 -spec get_version(key(), type()) -> {ok, snapshot()}.
-get_version(Key, Type) -> get_version(Key, Type, undefined).
+get_version(Key, Type) -> 
+  get_version(Key, Type, undefined).
 
 
 %% @doc Retrieves a materialized version of the object at given key with expected given type.
@@ -70,15 +71,7 @@ get_version(Key, Type) -> get_version(Key, Type, undefined).
 get_version(Key, Type, MaximumSnapshotTime) ->
   logger:info(#{function => "GET_VERSION", key => Key, type => Type, snapshot_timestamp => MaximumSnapshotTime}),
 
-  %% LEGACY: This part needs caching/optimization
-  %% Currently the steps to materialize are as follows:
-  %% * read ALL log entries from the persistent log file
-  %% * filter log entries by key
-  %% * filter furthermore only by committed operations
-  %% * materialize operations into materialized version
-  %% * return that materialized version.
-
-  %% CURRENT: ask the cache for the object.
+  %% Ask the cache for the object.
   %% If tha cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.

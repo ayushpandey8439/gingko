@@ -18,6 +18,23 @@
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 -record(cache_mgr_state, {cacheidentifier,log_seq = #{}}).
 
+
+%%%===================================================================
+%%% API
+%%%===================================================================
+
+-spec get_from_cache(atom(),atom(),vectorclock:vectorclock()) -> {ok,snapshot()}.
+get_from_cache(ObjectKey,Type,MaximumSnapshotTime)->
+  gen_server:call(?CACHE_DAEMON,{get_from_cache, ObjectKey,Type,MaximumSnapshotTime }).
+
+-spec put_in_cache({term(), antidote_crdt:typ(), vectorclock:vectorclock()}) -> boolean().
+put_in_cache(Data)->
+  gen_server:call(?CACHE_DAEMON,{put_in_cache, Data}).
+-spec invalidate_cache_objects(list()) -> ok.
+invalidate_cache_objects(Keys) ->
+  gen_server:call(?CACHE_DAEMON,{invalidate_objects, Keys}).
+
+
 %%%===================================================================
 %%% Spawning and gen_server implementation
 %%%===================================================================
@@ -75,19 +92,3 @@ code_change(_OldVsn, State = #cache_mgr_state{}, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-
-
-%%%===================================================================
-%%% API
-%%%===================================================================
-
--spec get_from_cache(atom(),atom(),vectorclock:vectorclock()) -> list().
-get_from_cache(ObjectKey,Type,MaximumSnapshotTime)->
-  gen_server:call(?CACHE_DAEMON,{get_from_cache, ObjectKey,Type,MaximumSnapshotTime }).
-
--spec put_in_cache({term(), antidote_crdt:typ(), vectorclock:vectorclock()}) -> boolean().
-put_in_cache(Data)->
-  gen_server:call(?CACHE_DAEMON,{put_in_cache, Data}).
--spec invalidate_cache_objects(list()) -> ok.
-invalidate_cache_objects(Keys) ->
-  gen_server:call(?CACHE_DAEMON,{invalidate_objects, Keys}).
