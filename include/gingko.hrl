@@ -11,8 +11,8 @@
 
 
 
-
--define(LOGGING_MASTER, gingko_op_log_server).
+-define(CACHE_DAEMON, cache_daemon).
+-define(LOGGING_MASTER, gingko_op_log).
 %% Version of log records being used
 -define(LOG_RECORD_VERSION, 0).
 

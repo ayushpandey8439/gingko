@@ -42,9 +42,9 @@ build(Key, Type, MaximumSnapshotTime) ->
   {Ops, CommittedOps, LastLSN} = log_utilities:filter_terms_for_key(Data, {key, Key}, undefined, MaximumSnapshotTime, dict:new(), dict:new(),0),
   %% Tha added 0 is to get the last LSN for a particular key which was materialised. This will be used when the object becomes stale.
   logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
-  case dict:find(Key, CommittedOps) of
-    {ok, PayloadForKey} -> PayloadForKey = PayloadForKey;
-    error -> PayloadForKey = []
+  PayloadForKey = case dict:find(Key, CommittedOps) of
+    {ok, Entry} -> Entry;
+    error -> []
   end,
   logger:info(#{ops => Ops, committed => CommittedOps}),
   ClockSIMaterialization = materializer:materialize_clocksi_payload(Type, materializer:create_snapshot(Type), PayloadForKey),
