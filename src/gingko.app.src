@@ -6,6 +6,10 @@
    [kernel,
     stdlib
    ]},
+   {included_applications, [
+    vectorclock,
+    antidote_crdt
+]},
   {licenses, ["Apache 2.0"]},
   {mod,{gingko,[]}}
  ]}.

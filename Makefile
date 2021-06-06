@@ -24,7 +24,9 @@ lint:
 test:
 	mkdir -p logs
 	${REBAR} eunit skip_deps=true
-	${REBAR} cover
+	${REBAR} ct skip_deps=true
+
+	${REBAR} cover --verbose
 
 dialyzer:
 	${REBAR} dialyzer
