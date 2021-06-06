@@ -25,7 +25,7 @@ start_link(CacheIdentifier) ->
 
 init(CacheIdentifier) ->
   logger:notice(#{
-    action => "Starting Cache manager server",
+    action => "Starting Cache Daemon",
     registered_as => ?MODULE,
     pid => self()
   }),
@@ -51,7 +51,9 @@ handle_call({get_from_cache, ObjectKey,Type,MaximumSnapshotTime }, _From, State 
   {reply, {ok, Reply}, State};
 
 handle_call({invalidate_objects, Keys}, _From, State = #cache_mgr_state{}) ->
-  lists:foreach(fun(ObjectKey) -> ets:delete(State#cache_mgr_state.cacheidentifier,ObjectKey) end, Keys),
+  lists:foreach(fun(ObjectKey) -> ets:delete(State#cache_mgr_state.cacheidentifier,ObjectKey) end, Keys), 
+  %% The delete here can also be replaced with tombstones but then the reads will have to check for staleness adding an extra operation.
+  %% This will have consequences when the reads are disproportionately high compared to the commits and writes.
   {reply, ok, State}.
 
 
