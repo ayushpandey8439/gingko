@@ -12,6 +12,9 @@
 %% API
 -export([now/1]).
 
+% TODO Add documentation regarding the purpose!
+% Why not monotonic time?
+% Currently function is not used.
 -spec now('micro_seconds' | 'milli_seconds') -> non_neg_integer().
 now(Granularity) when Granularity == micro_seconds->
   erlang:system_time(Granularity);

@@ -2,10 +2,7 @@
 %% @hidden
 -module(gingko_sync_server).
 
-
-
 -behaviour(gen_server).
-
 
 -record(state, {
   % open references to logs to be closed after termination

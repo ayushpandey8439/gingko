@@ -313,6 +313,7 @@ read_all(Log, Terms, Cont) ->
 %%% Unit Tests
 %%%===================================================================
 
+% TODO Why are the tests disabled?
 %%-ifdef(TEST).
 %%-include_lib("eunit/include/eunit.hrl").
 %%

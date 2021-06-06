@@ -21,4 +21,15 @@ relclean:
 lint:
 	${REBAR} as lint lint
 
-include tools.mk
+test:
+	mkdir -p logs
+	${REBAR} eunit skip_deps=true
+	${REBAR} cover
+
+dialyzer:
+	${REBAR} dialyzer
+
+edoc:
+	${REBAR} edoc
+	rm doc/erlang.png
+	cp doc/ext/gingko.png doc/erlang.png

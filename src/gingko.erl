@@ -37,11 +37,11 @@
   set_stable/1
 ]).
 
-%% @doc Start the logging server.
+%% @doc Start the backend server.
 -spec start(term(), term()) -> {ok, pid()} | ignore | {error, term()}.
 start(_Type, _Args) -> gingko_sup:start_link().
 
-%TODO -spec
+% @doc Stops the backend server.
 stop(_State) ->
   ok.
 
@@ -79,12 +79,11 @@ get_version(Key, Type, MaximumSnapshotTime) ->
   %% * return that materialized version.
 
   %% CURRENT: ask the cache for the object.
-  %% If tha cache has that object, it is returned.
+  %% If the cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
 
   {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MaximumSnapshotTime),
-  io:format("Maerialised Object: ~p ~n~n",[MaterializedObject]),
   logger:info(#{step => "materialize", materialized => MaterializedObject}),
   {ok, MaterializedObject}.
 
@@ -148,7 +147,7 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
   },
 
   lists:map(fun(_Key) -> gingko_op_log:append(?LOGGING_MASTER, LogRecord) end, Keys),
-  cache_daemon:invalidate_cache_objects(Keys), %% Upon commiting objects, we invalidate the cache so the objects are then rebuilt on reading. This should be moved to the evict daemon.  
+  cache_daemon:invalidate_cache_objects(Keys), %% Upon commiting objects, we invalidate the cache so the objects are then rebuilt on reading. This should be moved to the evict daemon.
   ok.
 
 
