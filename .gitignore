@@ -23,3 +23,6 @@ doc/**/*
 !doc/**/
 !doc/ext/*
 !doc/overview.edoc
+
+#Mac OSX Files.
+.DS_Store
