@@ -126,89 +126,95 @@ belongs_to_snapshot_op(SSTime, {OpDc, OpCommitTime}, OpSs) ->
     not vectorclock:le(OpSs1, SSTime).
 
 
-%%-ifdef(TEST).
-%%
-%%%% Testing update with pn_counter.
-%%update_pncounter_test() ->
-%%    Type = antidote_crdt_counter_pn,
-%%    Counter = create_snapshot(Type),
-%%    ?assertEqual(0, Type:value(Counter)),
-%%    Op = 1,
-%%    {ok, Counter2} = update_snapshot(Type, Counter, Op),
-%%    ?assertEqual(1, Type:value(Counter2)).
-%%
-%%%% Testing pn_counter with update log
-%%materializer_counter_withlog_test() ->
-%%    Type = antidote_crdt_counter_pn,
-%%    Counter = create_snapshot(Type),
-%%    ?assertEqual(0, Type:value(Counter)),
-%%    Ops = [1,
-%%           1,
-%%           2,
-%%           3
-%%          ],
-%%    Counter2 = materialize_eager(Type, Counter, Ops),
-%%    ?assertEqual(7, Type:value(Counter2)).
-%%
-%%%% Testing counter with empty update log
-%%materializer_counter_emptylog_test() ->
-%%    Type = antidote_crdt_counter_pn,
-%%    Counter = create_snapshot(Type),
-%%    ?assertEqual(0, Type:value(Counter)),
-%%    Ops = [],
-%%    Counter2 = materialize_eager(Type, Counter, Ops),
-%%    ?assertEqual(0, Type:value(Counter2)).
-%%
-%%%% Testing non-existing crdt
-%%materializer_error_nocreate_test() ->
-%%    ?assertException(error, undef, create_snapshot(bla)).
-%%
-%%%% Testing crdt with invalid update operation
-%%materializer_error_invalidupdate_test() ->
-%%    Type = antidote_crdt_counter_pn,
-%%    Counter = create_snapshot(Type),
-%%    ?assertEqual(0, Type:value(Counter)),
-%%    Ops = [{non_existing_op_type, {non_existing_op, actor1}}],
-%%    ?assertEqual({error, {unexpected_operation,
-%%                    {non_existing_op_type, {non_existing_op, actor1}},
-%%                    antidote_crdt_counter_pn}},
-%%                 materialize_eager(Type, Counter, Ops)).
-%%
-%%%% Testing that the function check_operations works properly
-%%check_operations_test() ->
-%%    Operations =
-%%        [{read, {key1, antidote_crdt_counter_pn}},
-%%         {update, {key1, antidote_crdt_counter_pn, increment}}
-%%        ],
-%%    ?assertEqual(ok, check_operations(Operations)),
-%%
-%%    Operations2 = [{read, {key1, antidote_crdt_counter_pn}},
-%%        {update, {key1, antidote_crdt_counter_pn, {{add, elem}, a}}},
-%%        {update, {key2, antidote_crdt_counter_pn, {increment, a}}},
-%%        {read, {key1, antidote_crdt_counter_pn}}],
-%%    ?assertMatch({error, _}, check_operations(Operations2)).
-%%
-%%%% Testing belongs_to_snapshot returns true when a commit time
-%%%% is smaller than a snapshot time
-%%belongs_to_snapshot_test() ->
-%%    CommitTime1a = 1,
-%%    CommitTime2a = 1,
-%%    CommitTime1b = 1,
-%%    CommitTime2b = 7,
-%%    SnapshotClockDC1 = 5,
-%%    SnapshotClockDC2 = 5,
-%%    CommitTime3a = 5,
-%%    CommitTime4a = 5,
-%%    CommitTime3b = 10,
-%%    CommitTime4b = 10,
-%%
-%%    SnapshotVC=vectorclock:from_list([{1, SnapshotClockDC1}, {2, SnapshotClockDC2}]),
-%%    ?assertEqual(true, belongs_to_snapshot_op(
-%%                 vectorclock:from_list([{1, CommitTime1a}, {2, CommitTime1b}]), {1, SnapshotClockDC1}, SnapshotVC)),
-%%    ?assertEqual(true, belongs_to_snapshot_op(
-%%                 vectorclock:from_list([{1, CommitTime2a}, {2, CommitTime2b}]), {2, SnapshotClockDC2}, SnapshotVC)),
-%%    ?assertEqual(false, belongs_to_snapshot_op(
-%%                  vectorclock:from_list([{1, CommitTime3a}, {2, CommitTime3b}]), {1, SnapshotClockDC1}, SnapshotVC)),
-%%    ?assertEqual(false, belongs_to_snapshot_op(
-%%                  vectorclock:from_list([{1, CommitTime4a}, {2, CommitTime4b}]), {2, SnapshotClockDC2}, SnapshotVC)).
-%%-endif.
+
+%%====================================================================
+%% Unit Tests
+%%====================================================================
+
+
+-ifdef(TEST).
+
+%% Testing update with pn_counter.
+update_pncounter_test() ->
+    Type = antidote_crdt_counter_pn,
+    Counter = create_snapshot(Type),
+    ?assertEqual(0, Type:value(Counter)),
+    Op = 1,
+    {ok, Counter2} = update_snapshot(Type, Counter, Op),
+    ?assertEqual(1, Type:value(Counter2)).
+
+%% Testing pn_counter with update log
+materializer_counter_withlog_test() ->
+    Type = antidote_crdt_counter_pn,
+    Counter = create_snapshot(Type),
+    ?assertEqual(0, Type:value(Counter)),
+    Ops = [1,
+           1,
+           2,
+           3
+          ],
+    Counter2 = materialize_eager(Type, Counter, Ops),
+    ?assertEqual(7, Type:value(Counter2)).
+
+%% Testing counter with empty update log
+materializer_counter_emptylog_test() ->
+    Type = antidote_crdt_counter_pn,
+    Counter = create_snapshot(Type),
+    ?assertEqual(0, Type:value(Counter)),
+    Ops = [],
+    Counter2 = materialize_eager(Type, Counter, Ops),
+    ?assertEqual(0, Type:value(Counter2)).
+
+%% Testing non-existing crdt
+materializer_error_nocreate_test() ->
+    ?assertException(error, undef, create_snapshot(bla)).
+
+%% Testing crdt with invalid update operation
+materializer_error_invalidupdate_test() ->
+    Type = antidote_crdt_counter_pn,
+    Counter = create_snapshot(Type),
+    ?assertEqual(0, Type:value(Counter)),
+    Ops = [{non_existing_op_type, {non_existing_op, actor1}}],
+    ?assertEqual({error, {unexpected_operation,
+                    {non_existing_op_type, {non_existing_op, actor1}},
+                    antidote_crdt_counter_pn}},
+                 materialize_eager(Type, Counter, Ops)).
+
+%% Testing that the function check_operations works properly
+check_operations_test() ->
+    Operations =
+        [{read, {key1, antidote_crdt_counter_pn}},
+         {update, {key1, antidote_crdt_counter_pn, increment}}
+        ],
+    ?assertEqual(ok, check_operations(Operations)),
+
+    Operations2 = [{read, {key1, antidote_crdt_counter_pn}},
+        {update, {key1, antidote_crdt_counter_pn, {{add, elem}, a}}},
+        {update, {key2, antidote_crdt_counter_pn, {increment, a}}},
+        {read, {key1, antidote_crdt_counter_pn}}],
+    ?assertMatch({error, _}, check_operations(Operations2)).
+
+%% Testing belongs_to_snapshot returns true when a commit time
+%% is smaller than a snapshot time
+belongs_to_snapshot_test() ->
+    CommitTime1a = 1,
+    CommitTime2a = 1,
+    CommitTime1b = 1,
+    CommitTime2b = 7,
+    SnapshotClockDC1 = 5,
+    SnapshotClockDC2 = 5,
+    CommitTime3a = 5,
+    CommitTime4a = 5,
+    CommitTime3b = 10,
+    CommitTime4b = 10,
+
+    SnapshotVC=vectorclock:from_list([{1, SnapshotClockDC1}, {2, SnapshotClockDC2}]),
+    ?assertEqual(true, belongs_to_snapshot_op(
+                 vectorclock:from_list([{1, CommitTime1a}, {2, CommitTime1b}]), {1, SnapshotClockDC1}, SnapshotVC)),
+    ?assertEqual(true, belongs_to_snapshot_op(
+                 vectorclock:from_list([{1, CommitTime2a}, {2, CommitTime2b}]), {2, SnapshotClockDC2}, SnapshotVC)),
+    ?assertEqual(false, belongs_to_snapshot_op(
+                  vectorclock:from_list([{1, CommitTime3a}, {2, CommitTime3b}]), {1, SnapshotClockDC1}, SnapshotVC)),
+    ?assertEqual(false, belongs_to_snapshot_op(
+                  vectorclock:from_list([{1, CommitTime4a}, {2, CommitTime4b}]), {2, SnapshotClockDC2}, SnapshotVC)).
+-endif.

@@ -18,7 +18,6 @@
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 -record(cache_mgr_state, {cacheidentifier,log_seq = #{}}).
 
-
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -51,8 +50,6 @@ init(CacheIdentifier) ->
   ets:new(CacheIdentifier,[named_table,?TABLE_CONCURRENCY]),
   {ok, #cache_mgr_state{cacheidentifier = CacheIdentifier}}.
 
-handle_call(ping,_From, State = #cache_mgr_state{}) ->
-  {reply, {ok, hello}, State};
 handle_call({put_in_cache, Data},_From, State = #cache_mgr_state{}) ->
   Result = ets:insert(State#cache_mgr_state.cacheidentifier, {Data}),
   {reply, {ok, Result}, State};
@@ -60,7 +57,7 @@ handle_call({put_in_cache, Data},_From, State = #cache_mgr_state{}) ->
 handle_call({get_from_cache, ObjectKey,Type,MaximumSnapshotTime }, _From, State = #cache_mgr_state{}) ->
   Reply = case ets:lookup(State#cache_mgr_state.cacheidentifier,ObjectKey) of
     [] ->
-      {LastLSN, MaterializedObject} = fill_daemon:build(ObjectKey,Type,MaximumSnapshotTime),
+      {_LastLSN, MaterializedObject} = fill_daemon:build(ObjectKey,Type,MaximumSnapshotTime),
       ets:insert(State#cache_mgr_state.cacheidentifier,{ObjectKey,Type,MaterializedObject}),
       {ObjectKey,Type,MaterializedObject};
     [CacheObject] ->
@@ -89,6 +86,7 @@ code_change(_OldVsn, State = #cache_mgr_state{}, _Extra) ->
   {ok, State}.
 
 %%%===================================================================
-%%% Internal functions
+%%% Unit Tests
 %%%===================================================================
 
+-include_lib("eunit/include/eunit.hrl").

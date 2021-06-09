@@ -27,12 +27,12 @@ fixture_test_() ->
         fun start/0,
         fun stop/1,
         [
-            %%fun counter_write_multiOP_test/1
+            fun counter_write_multiOP_test/1,
             fun counter_write_singleOP_test/1,
             fun cache_invalidation_test_single_object/1,
-            fun cache_invalidation_test_multi_object/1
-            %%,fun writeupdate_test/1
-            %%,fun write_and_commit_test/1
+            fun cache_invalidation_test_multi_object/1,
+            fun writeupdate_test/1,
+            fun write_and_commit_test/1
         ]
     }.
 
@@ -57,7 +57,7 @@ counter_write_multiOP_test(_Config)->
     gingko:commit([counter_multi], TransactionId, {1, 1234}, vectorclock:new()),
     {ok, Data} = gingko:get_version(counter_multi, Type, vectorclock:new()),
     logger:info("Data received in Counter Write is: ~p ~n~n~n",[Data]),
-    ?_assertEqual({counter_single,Type,5},Data).
+    ?_assertEqual({counter_multi,Type,5},Data).
 
 write_and_commit_test(_Config) ->
     TransactionId = dummy_txID,
@@ -71,7 +71,7 @@ write_and_commit_test(_Config) ->
 
     {ok, Data} = gingko:get_version(mvKey, Type, vectorclock:new()),
     logger:info("Data received in Write MV is: ~p ~n~n~n",[Data]),
-    ?_assertEqual(Data, [{testMV,<<"b">>}]).
+    ?_assertEqual({mvKey,Type,[{testMV,<<"b">>}]},Data).
 
 
 %% updated but not committed operations result in empty version
@@ -84,7 +84,7 @@ writeupdate_test(_Config) ->
     gingko:update(b, Type, 2, DownstreamOp2),
 
     {ok, Data} = gingko:get_version(b, Type, vectorclock:new()),
-    ?_assertEqual(Data, []).
+    ?_assertEqual({b,Type,[]},Data).
 
 
 
@@ -121,3 +121,10 @@ cache_invalidation_test_multi_object(_Config) ->
     {ok, Data3} = gingko:get_version(counter_single2, Type, vectorclock:new()),
     ?_assertEqual({counter_single1,Type,20},Data2),
     ?_assertEqual({counter_single2,Type,10},Data3).
+
+
+cache_invalidation_test_multi_object_with_clock(_Config) ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 10,
+    lists:map(fun(_Index) -> ok end, lists:seq(1, 100)).

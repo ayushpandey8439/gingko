@@ -36,6 +36,4 @@ edoc:
 	rm doc/erlang.png
 	cp doc/ext/gingko.png doc/erlang.png
 
-prerelease_check:
-	test
-	dialyzer
+prerelease_check:test dialyzer
