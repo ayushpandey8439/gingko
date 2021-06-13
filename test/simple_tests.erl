@@ -27,15 +27,38 @@ fixture_test_() ->
         fun start/0,
         fun stop/1,
         [
+            fun transaction_abort_read_test/1,
+            fun write_read_witnout_clock_test/1,
             fun counter_write_multiOP_test/1,
             fun counter_write_singleOP_test/1,
-            fun cache_invalidation_test_single_object/1,
-            fun cache_invalidation_test_multi_object/1,
+            %%fun cache_invalidation_test_single_object/1,
+            %%fun cache_invalidation_test_multi_object/1,
             fun writeupdate_test/1,
-            fun write_and_commit_test/1
+            fun write_and_commit_test/1,
+            fun clock_cache_miss_test/1,
+            fun clock_cache_hit_test/1,
+            fun forced_cache_invalidation_test/1
         ]
     }.
 
+transaction_abort_read_test(_Config) ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 45,
+    gingko:update(counter_aborted, Type, TransactionId, DownstreamOp),
+    gingko:abort([counter_aborted], TransactionId),
+    {ok, Data} = gingko:get_version(counter_aborted, Type),
+    ?_assertEqual({counter_aborted,Type,0}, Data).
+
+
+write_read_witnout_clock_test(_Config) ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 45,
+    gingko:update(counter_single, Type, TransactionId, DownstreamOp),
+    gingko:commit([counter_single], TransactionId, {1, 1234}, vectorclock:new()),
+    {ok, Data} = gingko:get_version(counter_single, Type),
+    ?_assertEqual({counter_single,Type,45}, Data).
 
 counter_write_singleOP_test(_Config)->
     TransactionId = arbitrary_txid,
@@ -46,7 +69,6 @@ counter_write_singleOP_test(_Config)->
     %% gingko:commit([counter_single], arbitrary_txid, {1, 1234}, vectorclock:new()).
     {ok, Data} = gingko:get_version(counter_single, Type, vectorclock:new()),
     %% gingko:get_version(counter_single, antidote_crdt_counter_pn, vectorclock:new()).
-    logger:info("Data received in Counter Write is: ~p ~n~n~n",[Data]),
     ?_assertEqual({counter_single,Type,45}, Data).
 
 counter_write_multiOP_test(_Config)->
@@ -56,7 +78,6 @@ counter_write_multiOP_test(_Config)->
     lists:map(fun(_Index) ->  gingko:update(counter_multi, Type, TransactionId, DownstreamOp) end,lists:seq(1,5)),
     gingko:commit([counter_multi], TransactionId, {1, 1234}, vectorclock:new()),
     {ok, Data} = gingko:get_version(counter_multi, Type, vectorclock:new()),
-    logger:info("Data received in Counter Write is: ~p ~n~n~n",[Data]),
     ?_assertEqual({counter_multi,Type,5},Data).
 
 write_and_commit_test(_Config) ->
@@ -70,7 +91,6 @@ write_and_commit_test(_Config) ->
     %% gingko:commit([mvKey],dummy_txID,{1, 1234},vectorclock:new()).
 
     {ok, Data} = gingko:get_version(mvKey, Type, vectorclock:new()),
-    logger:info("Data received in Write MV is: ~p ~n~n~n",[Data]),
     ?_assertEqual({mvKey,Type,[{testMV,<<"b">>}]},Data).
 
 
@@ -123,8 +143,49 @@ cache_invalidation_test_multi_object(_Config) ->
     ?_assertEqual({counter_single2,Type,10},Data3).
 
 
-cache_invalidation_test_multi_object_with_clock(_Config) ->
+clock_cache_miss_test(_Config) ->
+    fun() ->
     TransactionId = arbitrary_txid,
     Type = antidote_crdt_counter_pn,
     DownstreamOp = 10,
-    lists:map(fun(_Index) -> ok end, lists:seq(1, 100)).
+    lists:foreach(fun(ClockValue) ->
+        UpdatedClock = vectorclock:set_clock_of_dc(mydc, ClockValue,vectorclock:new()),
+        gingko:update(clock_counter_single, Type, TransactionId, DownstreamOp),
+        gingko:commit([clock_counter_single], TransactionId, {1, 1234}, UpdatedClock),
+        {ok,Data} = gingko:get_version(clock_counter_single, Type, UpdatedClock),
+        ?assertEqual({clock_counter_single,Type, 10*ClockValue}, Data)
+      end, lists:seq(1,20))
+end.
+
+clock_cache_hit_test(_Config) ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 10,
+    %% First update and red brings the object into the cache.
+    gingko:update(clock_counter_single, Type, TransactionId, DownstreamOp),
+    gingko:commit([clock_counter_single], TransactionId, {1, 1234}, vectorclock:set_clock_of_dc(mydc, 1,vectorclock:new())),
+    {ok,Data1} = gingko:get_version(clock_counter_single, Type, vectorclock:new()),
+    %% Second update creates a new version but the old version is still compatible with the timestamp so no re-materialization.
+    gingko:update(clock_counter_single, Type, TransactionId, DownstreamOp),
+    gingko:commit([clock_counter_single], TransactionId, {1, 1234}, vectorclock:set_clock_of_dc(mydc, 2,vectorclock:new())),
+    {ok,Data2} = gingko:get_version(clock_counter_single, Type, vectorclock:new()),
+
+    ?_assertEqual({clock_counter_single,Type, 10}, Data1),
+    ?_assertEqual({clock_counter_single,Type, 10}, Data2).
+
+forced_cache_invalidation_test(_Config) ->
+    fun() ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 10,
+    lists:foreach(fun(ClockValue) ->
+        gingko:update(forced_counter_single, Type, TransactionId, DownstreamOp),
+        gingko:commit([forced_counter_single], TransactionId, {1, 1234}, vectorclock:new()),
+        cache_daemon:invalidate_cache_objects([forced_counter_single]),
+        {ok,Data} = gingko:get_version(forced_counter_single, Type, vectorclock:new()),
+        ?assertEqual({forced_counter_single,Type, 10*ClockValue}, Data)
+                  end, lists:seq(1,20))
+    end.
+
+
+    

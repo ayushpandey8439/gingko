@@ -17,3 +17,6 @@ now(Granularity) when Granularity == micro_seconds->
   erlang:system_time(Granularity);
 now(Granularity) when Granularity == milli_seconds ->
   now(micro_seconds) div 1000.
+
+
+

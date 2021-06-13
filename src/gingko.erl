@@ -33,8 +33,8 @@
   commit/4,
   abort/2,
   get_version/2,
-  get_version/3,
-  set_stable/1
+  get_version/3
+  %%set_stable/1 TODO: Implement for the checkpoint store
 ]).
 
 %% @doc Start the logging server.
@@ -52,7 +52,8 @@ stop(_State) ->
 %% @equiv get_version(Key, Type, undefined)
 -spec get_version(key(), type()) -> {ok, snapshot()}.
 get_version(Key, Type) -> 
-  get_version(Key, Type, undefined).
+  get_version(Key, Type, vectorclock:new()).
+%% New so the minimum timestamp is irrelevant and the last stale version in the cache is returned.
 
 
 %% @doc Retrieves a materialized version of the object at given key with expected given type.
@@ -68,16 +69,15 @@ get_version(Key, Type) ->
 %% @param Type the expected CRDT type of the object
 %% @param MaximumSnapshotTime if not 'undefined', then retrieves the latest object version which is not older than this timestamp
 -spec get_version(key(), type(), snapshot_time()) -> {ok, snapshot()}.
-get_version(Key, Type, MaximumSnapshotTime) ->
-  logger:info(#{function => "GET_VERSION", key => Key, type => Type, snapshot_timestamp => MaximumSnapshotTime}),
+get_version(Key, Type, MinimumSnapshotTime) ->
+  logger:info(#{function => "GET_VERSION", key => Key, type => Type, snapshot_timestamp => MinimumSnapshotTime}),
 
   %% Ask the cache for the object.
   %% If tha cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
 
-  {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MaximumSnapshotTime),
-  io:format("Maerialised Object: ~p ~n~n",[MaterializedObject]),
+  {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime),
   logger:info(#{step => "materialize", materialized => MaterializedObject}),
   {ok, MaterializedObject}.
 
@@ -141,7 +141,7 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
   },
 
   lists:map(fun(_Key) -> gingko_op_log:append(?LOGGING_MASTER, LogRecord) end, Keys),
-  cache_daemon:invalidate_cache_objects(Keys), %% Upon commiting objects, we invalidate the cache so the objects are then rebuilt on reading. This should be moved to the evict daemon.  
+  %%cache_daemon:invalidate_cache_objects(Keys), %% Upon commiting objects, we invalidate the cache so the objects are then rebuilt on reading. This should be moved to the evict daemon.
   ok.
 
 

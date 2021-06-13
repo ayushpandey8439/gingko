@@ -36,7 +36,7 @@ append(Log, Entry) ->
 
 %% @doc Read all log entries with a simple list accumulator.
 %% @equiv read_log_entries(Log, FirstIndex, LastIndex, fun(D,Acc)->Acc++[D]end,[])
--spec read_log_entries(node(), integer(), integer() | all) -> {ok, [#log_record{}]}.
+-spec read_log_entries(node(), integer(), integer() | all) -> {ok, [{integer(),#log_record{}}]}.
 read_log_entries(Log, FirstIndex, LastIndex) ->
   F = fun(D, Acc) -> Acc ++ [D] end,
   read_log_entries(Log, FirstIndex, LastIndex, F, []).
@@ -394,5 +394,5 @@ read_test(Pid) ->
 
     % read entry
     Data = gingko_op_log:read_log_entries(Pid, 0, all),
-    ?assertEqual({ok,[{0, LogRecord}]},Data)
+    ?assertEqual({ok,[{0,LogRecord}]},Data)
   end.
