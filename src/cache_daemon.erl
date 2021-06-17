@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 -export([start_link/1]).
--export([get_from_cache/3, put_in_cache/1, invalidate_cache_objects/1]).
+-export([get_from_cache/4, put_in_cache/1, invalidate_cache_objects/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
 
@@ -24,11 +24,11 @@
 %%% API
 %%%===================================================================
 
--spec get_from_cache(atom(), atom(), vectorclock:vectorclock()) -> {ok, snapshot()}.
-get_from_cache(ObjectKey, Type, MinimumSnapshotTime)->
-  gen_server:call(?CACHE_DAEMON, {get_from_cache, ObjectKey, Type, MinimumSnapshotTime }).
+-spec get_from_cache(atom(), atom(), snapshot_time(), snapshot_time()) -> {ok, snapshot()}.
+get_from_cache(ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime)->
+  gen_server:call(?CACHE_DAEMON, {get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}).
 
--spec put_in_cache({term(), antidote_crdt:typ(), vectorclock:vectorclock()}) -> boolean().
+-spec put_in_cache({term(), antidote_crdt:typ(), snapshot_time()}) -> boolean().
 put_in_cache(Data)->
   gen_server:call(?CACHE_DAEMON, {put_in_cache, Data}).
 -spec invalidate_cache_objects(list()) -> ok.
@@ -56,25 +56,36 @@ handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{}) ->
   Result = ets:insert(State#cache_mgr_state.cacheidentifier, Data),
   {reply, {ok, Result}, State};
 
-handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime}, _From, State = #cache_mgr_state{}) ->
+handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime}, _From, State = #cache_mgr_state{}) ->
   Reply = case ets:lookup(State#cache_mgr_state.cacheidentifier, ObjectKey) of
     [] ->
-      logger:info("Cache Miss: Going to the log to materialize.~n~n"),
-      %% TODO: Go to the checkpoint store and get the last stable version and build on top of it.
-      {SnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, ignore),
+      logger:info("Cache Miss: Going to the log to materialize."),
+      % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
+      % with the current implementation, in case of a miss, the reconstruction happens from the start of time i.e. the log is replayed entirely.
+      % This is done by the `ignore` for the minimum snapshot timestamp.
+      {SnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
       ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, SnapshotTime, MaterializedObject}),
       {ObjectKey, Type, MaterializedObject};
     [{ObjectKey, Type, SnapshotTime, MaterializedObject}] ->
-      io:format("Cache Hit.~n~n"),
-      UpdatedMaterialization = case vectorclock:lt(SnapshotTime,MinimumSnapshotTime) of
-        true ->
-          logger:info("Cache Hit, Object stale ~p with timestamp ~p  against ~p ~n: Going to the log to materialize.~n~n",[MaterializedObject,SnapshotTime,MinimumSnapshotTime]),
-          {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, SnapshotTime, MinimumSnapshotTime),
-          ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, Timestamp, Materialization}),
-          Materialization;
-        false->
-          logger:info("Cache Hit, Object Up to date~n~n"),
-          MaterializedObject
+      SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, SnapshotTime),
+      SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime,SnapshotTime),
+      logger:info("Snapshot time ~p",[SnapshotTime]),
+    logger:info("Min Required ~p ",[MinimumSnapshotTime]),
+      logger:info("Max Required: ~p",[MaximumSnapshotTime]),
+      UpdatedMaterialization = if
+         SnapshotTimeLowerMinTime == true ->
+           logger:info("Cache hit, Object in the cache is stale. ~p ~p",[SnapshotTime, MaterializedObject]),
+           {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, SnapshotTime, MaximumSnapshotTime),
+           ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, Timestamp, Materialization}),
+           Materialization;
+         SnapshotTimeHigherMaxTime == true ->
+           logger:info("Cache hit, Object in the cache has a timestamp higher than the required minimum."),
+           {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+           ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, Timestamp, Materialization}),
+           Materialization;
+         true ->
+           logger:info("Cache hit, Object is within bounds"),
+           MaterializedObject
       end,
       {ObjectKey, Type, UpdatedMaterialization}
   end,

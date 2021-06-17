@@ -33,8 +33,8 @@
   commit/4,
   abort/2,
   get_version/2,
-  get_version/3
-  %%set_stable/1 TODO: Implement for the checkpoint store
+  get_version/4,
+  set_stable/1 %%TODO: Implement for the checkpoint store
 ]).
 
 %% @doc Start the logging server.
@@ -52,7 +52,7 @@ stop(_State) ->
 %% @equiv get_version(Key, Type, undefined)
 -spec get_version(key(), type()) -> {ok, snapshot()}.
 get_version(Key, Type) -> 
-  get_version(Key, Type, vectorclock:new()).
+  get_version(Key, Type, ignore, ignore).
 %% New so the minimum timestamp is irrelevant and the last stale version in the cache is returned.
 
 
@@ -68,16 +68,16 @@ get_version(Key, Type) ->
 %% @param Key the Key under which the object is stored
 %% @param Type the expected CRDT type of the object
 %% @param MaximumSnapshotTime if not 'undefined', then retrieves the latest object version which is not older than this timestamp
--spec get_version(key(), type(), snapshot_time()) -> {ok, snapshot()}.
-get_version(Key, Type, MinimumSnapshotTime) ->
-  logger:info(#{function => "GET_VERSION", key => Key, type => Type, snapshot_timestamp => MinimumSnapshotTime}),
+-spec get_version(key(), type(), snapshot_time(),snapshot_time()) -> {ok, snapshot()}.
+get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
+  logger:info(#{function => "GET_VERSION", key => Key, type => Type, min_snapshot_timestamp => MinimumSnapshotTime, max_snapshot_timestamp => MaximumSnapshotTime}),
 
   %% Ask the cache for the object.
   %% If tha cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
 
-  {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime),
+  {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
   logger:info(#{step => "materialize", materialized => MaterializedObject}),
   {ok, MaterializedObject}.
 

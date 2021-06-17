@@ -59,8 +59,8 @@ filter_terms_for_key([{_LSN, LogRecord} | OtherRecords], Key, MinSnapshotTime, M
     #update_log_payload{},                    % update payload read from the log
     [{non_neg_integer(), #log_record{}}],     % rest of the log
     key(),                                    % filter for key
-    snapshot_time() | ignore,              % minimal snapshot time
-    snapshot_time(),                          % maximal snapshot time
+    snapshot_time() | ignore,                 % minimum snapshot time
+    snapshot_time(),                          % maximum snapshot time
     dict:dict(txid(), [any_log_payload()]),   % accumulator for any type of operation records (possibly uncommitted)
     dict:dict(key(), [#clocksi_payload{}])    % accumulator for committed operations
 
@@ -89,8 +89,8 @@ handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
     #commit_log_payload{},                    % update payload read from the log
     [{non_neg_integer(), #log_record{}}],     % rest of the log
     key(),                                    % filter for key
-    snapshot_time() | ignore,              % minimal snapshot time
-    snapshot_time(),                          % maximal snapshot time
+    snapshot_time() | ignore,                 % minimum snapshot time
+    snapshot_time(),                          % maximum snapshot time
     dict:dict(txid(), [any_log_payload()]),   % accumulator for any type of operation records (possibly uncommitted)
     dict:dict(key(), [#clocksi_payload{}])   % accumulator for committed operations
 ) -> {
@@ -105,8 +105,9 @@ handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
     {ok, OpsList} ->
       NewCommittedOpsDict =
         lists:foldl(fun(#update_log_payload{key = KeyInternal, type = Type, op = Op}, Acc) ->
-          case (check_min_time(SnapshotTime, MinSnapshotTime) andalso
-            check_max_time(SnapshotTime, MaxSnapshotTime)) of
+          case (clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime) andalso
+            % The gt in the minimum is to ensure that the latest commit is not replayed on top of the cached snapshot version to prevent more than one effect.
+            clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)) of
             true ->
               CommittedDownstreamOp =
                 #clocksi_payload{
@@ -140,12 +141,3 @@ check_log_record_version(LogRecord) ->
   ?LOG_RECORD_VERSION = LogRecord#log_record.version,
   LogRecord.
 
-
--spec check_min_time(vectorclock:vectorclock(),vectorclock:vectorclock() | ignore) -> boolean().
-check_min_time(SnapshotTime, MinSnapshotTime) ->
-  ((MinSnapshotTime == ignore) orelse (vectorclock:gt(SnapshotTime, MinSnapshotTime))).
-
-
--spec check_max_time(vectorclock:vectorclock(),vectorclock:vectorclock() | ignore) -> boolean().
-check_max_time(SnapshotTime, MaxSnapshotTime) ->
-  ((MaxSnapshotTime == ignore) orelse (vectorclock:le(SnapshotTime, MaxSnapshotTime))).

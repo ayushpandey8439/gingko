@@ -38,7 +38,8 @@
 -spec build(atom(),atom(),snapshot(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock()) -> {integer(),snapshot()} | {integer(),{error, {unexpected_operation, effect(), type()}}}.
 build(Key, Type, MinSnapshotTime, MaximumSnapshotTime) ->
   build(Key, Type, materializer:create_snapshot(Type), MinSnapshotTime, MaximumSnapshotTime).
-build(Key, Type, Base, MinSnapshotTime, MaximumSnapshotTime) ->
+build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
+  %% TODO here the read should translate from the snapshot time to the actual reads. Possibly find a way to unify the snapshot time and log sequence numbers.
   {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all),
   logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
 
@@ -49,6 +50,7 @@ build(Key, Type, Base, MinSnapshotTime, MaximumSnapshotTime) ->
     error -> []
   end,
   logger:info(#{ops => Ops, committed => CommittedOps}),
+
   %% Get the clock of the last operation committed for the key and use it as the cache timestamp.
   case PayloadForKey == [] of
     true ->
@@ -56,7 +58,7 @@ build(Key, Type, Base, MinSnapshotTime, MaximumSnapshotTime) ->
     false ->
       LastCommittedOperation = lists:last(PayloadForKey),
       LastCommittedOpSnapshotTime = LastCommittedOperation#clocksi_payload.snapshot_time,
-      ClockSIMaterialization = materializer:materialize_clocksi_payload(Type, Base, PayloadForKey),
+      ClockSIMaterialization = materializer:materialize_clocksi_payload(Type, BaseSnapshot, PayloadForKey),
       {LastCommittedOpSnapshotTime, ClockSIMaterialization}
 
   end.

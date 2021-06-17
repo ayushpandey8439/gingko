@@ -55,7 +55,6 @@ read_log_entries(Log, FirstIndex, LastIndex) ->
 -spec read_log_entries(node(), integer(), integer() | all,
     fun((#log_record{}, Acc) -> Acc), Acc) -> {ok, Acc}.
 read_log_entries(Log, FirstIndex, LastIndex, FoldFunction, Accumulator) ->
-  logger:info("called readlog entries in op_log"),
   case gen_server:call(Log, {read_log_entries, FirstIndex, LastIndex, FoldFunction, Accumulator}) of
     retry -> logger:debug("Retrying request"), read_log_entries(Log, FirstIndex, LastIndex, FoldFunction, Accumulator);
     Reply -> Reply
@@ -81,6 +80,12 @@ read_log_entries(Log, FirstIndex, LastIndex, FoldFunction, Accumulator) ->
 
   % stores current writable index
   next_index :: integer()
+
+  % Index storing the LSN with the continuation from which the read has to start.
+  % This will affect the filtering being done in line 250.
+
+  %log_index :: #{integer() => disk_log:continuation()}
+
 }).
 
 
@@ -114,14 +119,14 @@ init({LogName, RecoveryReceiver}) ->
   end,
 
 
-  {ok, LogServer} = gingko_sync_server:start_link(LogName),
+  {ok, SyncServer} = gingko_sync_server:start_link(LogName),
 
   gen_server:cast(self(), start_recovery),
   {ok, #state{
     log_name = LogName,
     recovery_receiver = ActualReceiver,
     recovering = true,
-    sync_server = LogServer,
+    sync_server = SyncServer,
     next_index = ?STARTING_INDEX
   }}.
 
@@ -242,6 +247,7 @@ handle_call({read_log_entries, FirstIndex, LastIndex, F, Acc}, _From, State) ->
   %% can be improved performance wise, stop at last index
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
   %% TODO this will most likely cause a timeout to the gen_server caller, what to do?
+  %% TODO here technically the read should happen based on the index being created. first fetch the operations that could suffice and fertch them.
   Terms = read_all(Log),
 
   % filter index
