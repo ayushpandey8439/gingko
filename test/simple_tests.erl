@@ -69,6 +69,7 @@ counter_write_singleOP_test(_Config)->
     gingko:commit([counter_single], TransactionId, {1, 1234}, vectorclock:new()),
     %% gingko:commit([counter_single], arbitrary_txid, {1, 1234}, vectorclock:new()).
     {ok, Data} = gingko:get_version(counter_single, Type),
+
     %% gingko:get_version(counter_single, antidote_crdt_counter_pn, vectorclock:new()).
     ?_assertEqual({counter_single,Type,45}, Data).
 

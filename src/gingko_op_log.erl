@@ -247,19 +247,16 @@ handle_call({read_log_entries, FirstIndex, LastIndex,Continuation, F, Acc}, _Fro
   %% can be improved performance wise, stop at last index
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
   %% TODO this will most likely cause a timeout to the gen_server caller, what to do?
-  %% TODO here technically the read should happen based on the index being created. first fetch the operations that could suffice and fertch them.
-  {Terms, Continuations} = read_all(Log,[],[],Continuation),
-  Combined_Continuations = lists:zip(Terms, Continuations),
-  % filter index
-  FilterByIndex = fun({{Index, _},_}) -> Index >= FirstIndex andalso ((LastIndex == all) or (Index =< LastIndex)) end,
-  FilteredTermsWithContinuations = lists:filter(FilterByIndex, Combined_Continuations),
-  % apply given aggregator function
-  ReplyAcc = lists:foldl(F, Acc, FilteredTermsWithContinuations),
-  logger:info("Filtered Continuations are ~p long",[length(ReplyAcc)]),
-  {ReplyTerms, ReplyContinuations} = lists:unzip(ReplyAcc),
-  reply_retry_to_waiting(Waiting),
+  %Terms = read_all(Log,[],Continuation),
+  Terms = read_continuations(Log, [], Continuation),
 
-  {reply, {ok, {ReplyTerms, ReplyContinuations}}, State#state{waiting_for_reply = []}}.
+  % filter index
+  %FilterByIndex = fun(#log_read{log_entry = {Index, _},continuation = _}) -> Index >= FirstIndex andalso ((LastIndex == all) or (Index =< LastIndex)) end,
+ % FilteredTerms = lists:filter(FilterByIndex, Terms),
+  % apply given aggregator function
+  ReplyAcc = lists:foldl(F, Acc, Terms),
+  reply_retry_to_waiting(Waiting),
+  {reply, {ok, ReplyAcc}, State#state{waiting_for_reply = []}}.
 
 
 handle_info(Msg, State) ->
@@ -309,7 +306,7 @@ recover_all_logs(LogName, Receiver, LogServer) ->
     {ok, Log} = gen_server:call(LogServer, {get_log, LogName}),
 
     % read all terms
-    {Terms, Continuations} = read_all(Log),
+    Terms = read_all(Log),
 
     logger:notice(#{
       terms => Terms
@@ -348,58 +345,20 @@ recover_all_logs(LogName, Receiver, LogServer) ->
 %% @doc reads all terms from given log
 -spec read_all(log()) -> [term()].
 read_all(Log) ->
-  read_all(Log, [],[], start).
+  read_all(Log, [], start).
 
 
-read_all(Log, Terms, Continuations, Cont) ->
-  case disk_log:chunk(Log, Cont,1) of
-    eof -> {Terms, Continuations};
-    {Cont2, ReadTerms} -> read_all(Log, Terms ++ ReadTerms, Continuations++[Cont2], Cont2)
+read_all(Log, Terms, Cont) ->
+  case disk_log:chunk(Log, Cont) of
+    eof -> Terms;
+    {Cont2, ReadTerms} -> read_all(Log, Terms ++ ReadTerms, Cont2)
   end.
 
 
-%%%===================================================================
-%%% Unit Tests
-%%%===================================================================
-
--include_lib("eunit/include/eunit.hrl").
-
-main_test_() ->
-  {foreach,
-    fun setup/0,
-    fun cleanup/1,
-    [
-      %fun read_test/1
-    ]}.
-
-% Setup and Cleanup
-setup() ->
-  {ok, Pid} = gingko_op_log:start_link("test_log", none),
-  Pid.
-
-cleanup(Pid) ->
-  gen_server:stop(Pid),
-  file:del_dir_r("data/op_log/test_log"),
-  ok.
-
-
-read_test(Pid) ->
-  fun() ->
-    Entry = #log_operation{
-      tx_id = 0,
-      op_type = commit,
-      log_payload = #update_log_payload{key = a, type = mv_reg , op = {update,{a, mv_reg, xyz}}}},
-
-    LogRecord = #log_record {
-      version = ?LOG_RECORD_VERSION,
-      op_number = #op_number{},        % not used
-      bucket_op_number = #op_number{}, % not used
-      log_operation = Entry
-    },
-
-    _Res = gingko_op_log:append(Pid, LogRecord),
-
-    % read entry
-    Data = gingko_op_log:read_log_entries(Pid, 0, all, start),
-    ?assertEqual({ok,[{0,LogRecord}]},Data)
+%% @doc reads terms from given log starting with a specific continuation and also returns the continuations with the read log entries.
+-spec read_continuations(log(), [#log_read{}], continuation() | start) -> [{term(),continuation()}].
+read_continuations(Log, Terms, Cont) ->
+  case disk_log:chunk(Log, Cont) of
+    eof -> Terms;
+    {Cont2, ReadTerms} -> read_all(Log, Terms ++ [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- ReadTerms], Cont2)
   end.

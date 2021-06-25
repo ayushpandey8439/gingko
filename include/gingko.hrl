@@ -111,3 +111,16 @@
 }).
 
 -type continuation() :: disk_log:continuation().
+
+
+-record(log_read, {
+  log_entry :: {integer(), #log_record{}},
+  continuation:: continuation()
+}).
+
+
+-record(log_index,{
+  key :: atom(),
+  snapshot_time:: snapshot_time(),
+  continuation:: continuation()
+}).

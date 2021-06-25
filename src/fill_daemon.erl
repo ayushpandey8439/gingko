@@ -41,20 +41,24 @@ build(Key, Type, MinSnapshotTime, MaximumSnapshotTime) ->
 build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
   % Go to the index and get the minimum continuation we can start from.
   {ok, ContinuationObject} = log_index_daemon:get_continuation(Key,MinSnapshotTime),
-  logger:info("Continuation for this version starts from ~p ~n",[ContinuationObject]),
+  io:format("Continuation for this version starts from ~p ~n",[ContinuationObject]),
 
   % With the list of log entries for the key, we also have the list of continuation objects.
-  {ok, {Data, Continuations}} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all, ContinuationObject),
+  {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all, ContinuationObject),
+
   logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
-  {Ops, CommittedOps} = log_utilities:filter_terms_for_key(Data, {key, Key}, MinSnapshotTime, MaximumSnapshotTime, dict:new(), dict:new()),
+  {Ops, CommittedOps, FilteredContinuations} = log_utilities:filter_terms_for_key(Data, {key, Key}, MinSnapshotTime, MaximumSnapshotTime, dict:new(), dict:new(),[]),
   logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
+
+  % TODO: Possibel improvement to get rid of dict find and convert the dictionary to list directly. The dictionary is already filtered by key.
   PayloadForKey = case dict:find(Key, CommittedOps) of
     {ok, Entry} -> Entry;
     error -> []
   end,
   logger:info(#{ops => Ops, committed => CommittedOps}),
-  logger:info("Payload for key is: ~p",[PayloadForKey]),
-  io:format("CommittedOps for Key are :: ~p ~n",[CommittedOps]),
+  % Index the object materialization with the continuation
+  lists:foreach(fun(#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(Key, SnapshotTime,Continuation) end, FilteredContinuations),
+
   %% Get the clock of the last operation committed for the key and use it as the cache timestamp.
   {SnapshotTimestamp, Materialization} = case PayloadForKey == [] of
     true ->
@@ -64,6 +68,4 @@ build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
       LastCommittedOpSnapshotTime = LastCommittedOperation#clocksi_payload.snapshot_time,
       ClockSIMaterialization = materializer:materialize_clocksi_payload(Type, BaseSnapshot, PayloadForKey),
       {LastCommittedOpSnapshotTime, ClockSIMaterialization}
-  end
-% Index the object materialization with the continuation
-.
+  end.
