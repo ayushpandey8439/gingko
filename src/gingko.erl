@@ -31,6 +31,7 @@
 -export([
   update/4,
   commit/4,
+  commit/3,
   abort/2,
   get_version/2,
   get_version/4,
@@ -124,6 +125,10 @@ update(Key, Type, TransactionId, DownstreamOp) ->
 %% @param TransactionId the id of the transaction this commit belongs to
 %% @param CommitTime TODO
 %% @param SnapshotTime TODO
+-spec commit([key()], txid(), dc_and_commit_time()) -> ok.
+commit(Keys, TransactionId, CommitTime)->
+  commit(Keys, TransactionId, CommitTime, vectorclock:new()).
+
 -spec commit([key()], txid(), dc_and_commit_time(), snapshot_time()) -> ok.
 commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
   logger:info(#{function => "COMMIT", keys => Keys, transaction => TransactionId, commit_timestamp => CommitTime, snapshot_timestamp => SnapshotTime}),

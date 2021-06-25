@@ -20,5 +20,9 @@ init(_Args) ->
     {checkpoint_daemon,start_link,[gingko_checkpoint_store]},
     permanent,5000,worker,[checkpoint_daemon_server]},
 
+  LogIndexDaemon = {?LOG_INDEX_DAEMON,
+    {?LOG_INDEX_DAEMON,start_link,[gingko_log_index]},
+    permanent,5000,worker,[?LOG_INDEX_DAEMON]},
+
   SupFlags = #{strategy => one_for_one, intensity => 1, period => 5},
-  {ok, {SupFlags, [Worker,CacheDaemon,CheckpointDaemon]}}.
+  {ok, {SupFlags, [Worker,CacheDaemon,CheckpointDaemon,LogIndexDaemon]}}.

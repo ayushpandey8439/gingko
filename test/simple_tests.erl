@@ -37,7 +37,8 @@ fixture_test_() ->
             fun forced_cache_invalidation_test/1,
             fun mv_register_without_clock_test/1,
             fun clock_cache_miss_test/1,
-            fun mv_register_with_clock_test/1
+            fun mv_register_with_clock_test/1,
+            fun counter_test_partial_log_reads/1
         ]
     }.
 
@@ -87,7 +88,7 @@ write_and_commit_test(_Config) ->
 
     %% gingko:update(mvKey, antidote_crdt_register_mv, dummy_txID,  {testMV,<<"b">>, []}).
     gingko:update(mvKey, Type, TransactionId, DownstreamOp),
-    gingko:commit([mvKey], TransactionId, {1, 1234}, vectorclock:new()),
+    gingko:commit([mvKey], TransactionId, {1, 1234}),
     %% gingko:commit([mvKey],dummy_txID,{1, 1234},vectorclock:new()).
 
     {ok, Data} = gingko:get_version(mvKey, Type),
@@ -142,7 +143,7 @@ forced_cache_invalidation_test(_Config) ->
     DownstreamOp = 10,
     lists:foreach(fun(ClockValue) ->
         gingko:update(forced_counter_single, Type, TransactionId, DownstreamOp),
-        gingko:commit([forced_counter_single], TransactionId, {1, 1234}, vectorclock:new()),
+        gingko:commit([forced_counter_single], TransactionId, {1, 1234}),
         cache_daemon:invalidate_cache_objects([forced_counter_single]),
         {ok,Data} = gingko:get_version(forced_counter_single, Type),
         ?assertEqual({forced_counter_single,Type, 10*ClockValue}, Data)
@@ -160,7 +161,7 @@ mv_register_without_clock_test(_Config) ->
     {ok,Data} = gingko:get_version(Key, Type),
     ?_assertEqual({Key, Type, [{Key,<<"b">>}]},Data),
     gingko:update(Key, Type, TransactionId, {reset, [<<"b">>]}),
-    gingko:commit([Key], TransactionId, {1, 1234}, vectorclock:new()),
+    gingko:commit([Key], TransactionId, {1, 1234}),
     {ok,Data1} = gingko:get_version(Key, Type, vectorclock:set_clock_of_dc(mydc, 2,vectorclock:new()),ignore),
     ?_assertEqual({Key, Type, []},Data1).
 
@@ -183,5 +184,16 @@ mv_register_with_clock_test(_Config) ->
         {ok,Data} = gingko:get_version(Key, Type, UpdatedClock, UpdatedClock),
         ?assertEqual({Key,Type, [{valueToken,X} || X <- lists:seq(1,ClockValue)]}, Data)
   end, lists:seq(1,50))
-
 end.
+
+
+counter_test_partial_log_reads(_Config)->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 1,
+    lists:map(fun(Index) ->
+        gingko:update(counter_multi, Type, TransactionId, DownstreamOp),
+        gingko:commit([counter_multi], TransactionId, {1, 1234}, vectorclock:set_clock_of_dc(mydc,Index,vectorclock:new())),
+        {ok, Data} = gingko:get_version(counter_multi, Type,vectorclock:set_clock_of_dc(mydc,Index,vectorclock:new()), ignore),
+        ?_assertEqual({counter_multi,Type,Index},Data)
+    end,lists:seq(1,5)).

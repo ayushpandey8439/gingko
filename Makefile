@@ -1,5 +1,8 @@
+BASEDIR  = $(shell pwd)
 REBAR = $(shell pwd)/rebar3
 .PHONY: rel test
+RELPATH = _build/default/rel/distFlow
+
 
 all: compile
 
@@ -10,7 +13,8 @@ clean:
 	$(REBAR) clean
 
 shell:
-	$(REBAR) shell --name='gingko@127.0.0.1'
+	$(REBAR) release
+	_build/default/rel/gingko/bin/gingko console
 
 rel:
 	$(REBAR) release

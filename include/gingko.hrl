@@ -12,6 +12,7 @@
 
 %% Module names to be used across implementation.
 -define(CACHE_DAEMON, cache_daemon).
+-define(LOG_INDEX_DAEMON, log_index_daemon).
 -define(LOGGING_MASTER, gingko_op_log).
 
 
@@ -108,3 +109,5 @@
     bucket_op_number :: #op_number{},
     log_operation :: #log_operation{}
 }).
+
+-type continuation() :: disk_log:continuation().

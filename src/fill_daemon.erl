@@ -39,10 +39,13 @@
 build(Key, Type, MinSnapshotTime, MaximumSnapshotTime) ->
   build(Key, Type, materializer:create_snapshot(Type), MinSnapshotTime, MaximumSnapshotTime).
 build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
-  %% TODO here the read should translate from the snapshot time to the actual reads. Possibly find a way to unify the snapshot time and log sequence numbers.
-  {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all),
-  logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
+  % Go to the index and get the minimum continuation we can start from.
+  {ok, ContinuationObject} = log_index_daemon:get_continuation(Key,MinSnapshotTime),
+  logger:info("Continuation for this version starts from ~p ~n",[ContinuationObject]),
 
+  % With the list of log entries for the key, we also have the list of continuation objects.
+  {ok, {Data, Continuations}} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all, ContinuationObject),
+  logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
   {Ops, CommittedOps} = log_utilities:filter_terms_for_key(Data, {key, Key}, MinSnapshotTime, MaximumSnapshotTime, dict:new(), dict:new()),
   logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
   PayloadForKey = case dict:find(Key, CommittedOps) of
@@ -50,9 +53,10 @@ build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
     error -> []
   end,
   logger:info(#{ops => Ops, committed => CommittedOps}),
-
+  logger:info("Payload for key is: ~p",[PayloadForKey]),
+  io:format("CommittedOps for Key are :: ~p ~n",[CommittedOps]),
   %% Get the clock of the last operation committed for the key and use it as the cache timestamp.
-  case PayloadForKey == [] of
+  {SnapshotTimestamp, Materialization} = case PayloadForKey == [] of
     true ->
       {vectorclock:new(), materializer:create_snapshot(Type)};
     false ->
@@ -60,5 +64,6 @@ build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
       LastCommittedOpSnapshotTime = LastCommittedOperation#clocksi_payload.snapshot_time,
       ClockSIMaterialization = materializer:materialize_clocksi_payload(Type, BaseSnapshot, PayloadForKey),
       {LastCommittedOpSnapshotTime, ClockSIMaterialization}
-
-  end.
+  end
+% Index the object materialization with the continuation
+.

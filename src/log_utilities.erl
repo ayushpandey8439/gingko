@@ -35,7 +35,7 @@
 filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOpsDict) ->
   {Ops, CommittedOpsDict};
 
-filter_terms_for_key([{_LSN, LogRecord} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict) ->
+filter_terms_for_key([{LSN, LogRecord} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict) ->
   logger:debug("Log record ~p", [LogRecord]),
 
   #log_record{log_operation = LogOperation} = check_log_record_version(LogRecord),

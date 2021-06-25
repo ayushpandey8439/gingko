@@ -61,8 +61,6 @@ handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapsho
     [] ->
       logger:info("Cache Miss: Going to the log to materialize."),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
-      % with the current implementation, in case of a miss, the reconstruction happens from the start of time i.e. the log is replayed entirely.
-      % This is done by the `ignore` for the minimum snapshot timestamp.
       {SnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
       ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, SnapshotTime, MaterializedObject}),
       {ObjectKey, Type, MaterializedObject};
@@ -76,6 +74,7 @@ handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapsho
          SnapshotTimeLowerMinTime == true ->
            logger:info("Cache hit, Object in the cache is stale. ~p ~p",[SnapshotTime, MaterializedObject]),
            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, SnapshotTime, MaximumSnapshotTime),
+           % Insert the element in the cache for later reads.
            ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, Timestamp, Materialization}),
            Materialization;
          SnapshotTimeHigherMaxTime == true ->
