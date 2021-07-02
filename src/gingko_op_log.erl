@@ -214,7 +214,7 @@ handle_call({add_log_entry, Data}, From, State) ->
     data => Data
   }),
 
-  ok = disk_log:log(Log, {NextIndex, Data}),
+  ok = disk_log:alog(Log, {NextIndex, Data}),
 
   % wait for sync reply
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
@@ -360,5 +360,5 @@ read_all(Log, Terms, Cont) ->
 read_continuations(Log, Terms, Cont) ->
   case disk_log:chunk(Log, Cont) of
     eof -> Terms;
-    {Cont2, ReadTerms} -> read_all(Log, Terms ++ [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- ReadTerms], Cont2)
+    {Cont2, ReadTerms} -> read_continuations(Log, Terms ++ [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- ReadTerms], Cont2)
   end.

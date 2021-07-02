@@ -61,7 +61,7 @@ write_read_without_clock_test(_Config) ->
     {ok, Data} = gingko:get_version(counter_single, Type),
     ?_assertEqual({counter_single,Type,45}, Data).
 
-counter_write_singleOP_test(_Config)->
+counter_write_singleOP_test(_Config) ->
     TransactionId = arbitrary_txid,
     Type = antidote_crdt_counter_pn,
     DownstreamOp = 45,
@@ -73,7 +73,7 @@ counter_write_singleOP_test(_Config)->
     %% gingko:get_version(counter_single, antidote_crdt_counter_pn, vectorclock:new()).
     ?_assertEqual({counter_single,Type,45}, Data).
 
-counter_write_multiOP_test(_Config)->
+counter_write_multiOP_test(_Config) ->
     TransactionId = arbitrary_txid,
     Type = antidote_crdt_counter_pn,
     DownstreamOp = 1,
@@ -188,7 +188,7 @@ mv_register_with_clock_test(_Config) ->
 end.
 
 
-counter_test_partial_log_reads(_Config)->
+counter_test_partial_log_reads(_Config) ->
     TransactionId = arbitrary_txid,
     Type = antidote_crdt_counter_pn,
     DownstreamOp = 1,

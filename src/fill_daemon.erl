@@ -41,11 +41,8 @@ build(Key, Type, MinSnapshotTime, MaximumSnapshotTime) ->
 build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
   % Go to the index and get the minimum continuation we can start from.
   {ok, ContinuationObject} = log_index_daemon:get_continuation(Key,MinSnapshotTime),
-  io:format("Continuation for this version starts from ~p ~n",[ContinuationObject]),
-
   % With the list of log entries for the key, we also have the list of continuation objects.
   {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all, ContinuationObject),
-
   logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
   {Ops, CommittedOps, FilteredContinuations} = log_utilities:filter_terms_for_key(Data, {key, Key}, MinSnapshotTime, MaximumSnapshotTime, dict:new(), dict:new(),[]),
   logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),

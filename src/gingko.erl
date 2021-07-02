@@ -146,7 +146,6 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
   },
 
   lists:map(fun(_Key) -> gingko_op_log:append(?LOGGING_MASTER, LogRecord) end, Keys),
-  %%cache_daemon:invalidate_cache_objects(Keys), %% Upon commiting objects, we invalidate the cache so the objects are then rebuilt on reading. This should be moved to the evict daemon.
   ok.
 
 
