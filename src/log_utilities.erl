@@ -68,15 +68,15 @@ filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Con
     [#log_index{}]                            % List of continuations used for indexing the log
 ) -> {
   dict:dict(txid(), [any_log_payload()]),     % all accumulated operations for key and snapshot filter
-  dict:dict(key(), [#clocksi_payload{}])      % accumulated committed operations for key and snapshot filter
+  dict:dict(key(), [#clocksi_payload{}]),     % accumulated committed operations for key and snapshot filter
+  [#log_index{}]
 }.
 handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations) ->
   #update_log_payload{key = PayloadKey} = OpPayload,
   case (Key == {key, PayloadKey}) or (Key == ignore) of
     true ->
       % key matches: append to all operations accumulator
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime,
-        dict:append(TxId, OpPayload, Ops), CommittedOpsDict, Continuations);
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, dict:append(TxId, OpPayload, Ops), CommittedOpsDict, Continuations);
     false ->
       % key does not match: skip
       filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations)
@@ -99,7 +99,8 @@ handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
     continuation()                            % The point in the log at which this commit can be read
 ) -> {
   dict:dict(txid(), [any_log_payload()]),     % all accumulated operations for key and snapshot filter
-  dict:dict(key(), [#clocksi_payload{}])      % accumulated committed operations for key and snapshot filter
+  dict:dict(key(), [#clocksi_payload{}]),     % accumulated committed operations for key and snapshot filter
+  [#log_index{}]
 }.
 handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations, Continuation) ->
 

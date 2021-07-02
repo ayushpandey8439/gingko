@@ -1,11 +1,11 @@
 {"1.2.0",
-[{<<"antidote_crdt">>,{pkg,<<"antidote_crdt">>,<<"0.1.2">>},0},
- {<<"vectorclock">>,{pkg,<<"vectorclock">>,<<"0.1.0">>},0}]}.
+[{<<"antidote_crdt">>,{pkg,<<"antidote_crdt">>,<<"0.1.3">>},0},
+ {<<"vectorclock">>,{pkg,<<"vectorclock">>,<<"0.2.0">>},0}]}.
 [
 {pkg_hash,[
- {<<"antidote_crdt">>, <<"A92A5ED8918D87AD22557825743C6EAC69DD6089D536E1BF5F9AC80992FA97F8">>},
- {<<"vectorclock">>, <<"CBC79A44193756CF20B9AC8DDB9F268FAF1FE84D00C396DB447373E6D1FEDFC5">>}]},
+ {<<"antidote_crdt">>, <<"FBAD3C65BA21E781C9E3D064C483D42F0CC52FC7145F2C317A918C31224270BB">>},
+ {<<"vectorclock">>, <<"6C4A9D44895F51BB99910DBE31FC691BF05FA6B2BF84986F6E3BDE4BD18F6CBA">>}]},
 {pkg_hash_ext,[
- {<<"antidote_crdt">>, <<"F01570A02CB75EE2F580512E25D70CA206E86F83399080A378BA1E8FB76AE21E">>},
- {<<"vectorclock">>, <<"A5FB86782D86BFDBCBA54FEA85000417E5F49AA770717927CBA38A069C964288">>}]}
+ {<<"antidote_crdt">>, <<"5625673BB3227F5A77795C995F3139FCB5DC58117B1AB7AAC14A6FDDE58D7C6B">>},
+ {<<"vectorclock">>, <<"1CBB5B261B73D2D2DE537BE01A673754769E220121154735F729DEBD1139F60F">>}]}
 ].

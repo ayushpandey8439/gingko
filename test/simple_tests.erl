@@ -114,7 +114,7 @@ clock_cache_miss_test(_Config) ->
     Type = antidote_crdt_counter_pn,
     DownstreamOp = 10,
     lists:foreach(fun(ClockValue) ->
-        UpdatedClock = vectorclock:set_clock_of_dc(mydc, ClockValue,vectorclock:new()),
+        UpdatedClock = vectorclock:set(mydc, ClockValue,vectorclock:new()),
         gingko:update(clock_counter_single, Type, TransactionId, DownstreamOp),
         gingko:commit([clock_counter_single], TransactionId, {1, 1234}, UpdatedClock),
         {ok,Data} = gingko:get_version(clock_counter_single, Type, UpdatedClock,ignore),
@@ -127,12 +127,12 @@ clock_cache_hit_test(_Config) ->
     Type = antidote_crdt_counter_pn,
     DownstreamOp = 10,
     gingko:update(clock_counter_single, Type, TransactionId, DownstreamOp),
-    gingko:commit([clock_counter_single], TransactionId, {1, 1234}, vectorclock:set_clock_of_dc(mydc, 1,vectorclock:new())),
+    gingko:commit([clock_counter_single], TransactionId, {1, 1234}, vectorclock:set(mydc, 1,vectorclock:new())),
     {ok,Data1} = gingko:get_version(clock_counter_single, Type),
     gingko:update(clock_counter_single, Type, TransactionId, DownstreamOp),
-    gingko:commit([clock_counter_single], TransactionId, {1, 1234}, vectorclock:set_clock_of_dc(mydc, 2,vectorclock:new())),
+    gingko:commit([clock_counter_single], TransactionId, {1, 1234}, vectorclock:set(mydc, 2,vectorclock:new())),
     {ok,Data2} = gingko:get_version(clock_counter_single, Type),
-    {ok,Data3} = gingko:get_version(clock_counter_single, Type,vectorclock:new(),vectorclock:set_clock_of_dc(mydc, 1,vectorclock:new())),
+    {ok,Data3} = gingko:get_version(clock_counter_single, Type,vectorclock:new(),vectorclock:set(mydc, 1,vectorclock:new())),
     ?_assertEqual({clock_counter_single,Type, 10}, Data1),
     ?_assertEqual({clock_counter_single,Type, 20}, Data2),
     ?_assertEqual({clock_counter_single,Type, 10}, Data3).
@@ -163,7 +163,7 @@ mv_register_without_clock_test(_Config) ->
     ?_assertEqual({Key, Type, [{Key,<<"b">>}]},Data),
     gingko:update(Key, Type, TransactionId, {reset, [<<"b">>]}),
     gingko:commit([Key], TransactionId, {1, 1234}),
-    {ok,Data1} = gingko:get_version(Key, Type, vectorclock:set_clock_of_dc(mydc, 2,vectorclock:new()),ignore),
+    {ok,Data1} = gingko:get_version(Key, Type, vectorclock:set(mydc, 2,vectorclock:new()),ignore),
     ?_assertEqual({Key, Type, []},Data1).
 
 mv_register_with_clock_test(_Config) ->
@@ -172,7 +172,7 @@ mv_register_with_clock_test(_Config) ->
     Type = antidote_crdt_register_mv,
     Key = mv_register,
     lists:foreach(fun(ClockValue) ->
-        UpdatedClock = vectorclock:set_clock_of_dc(mydc, ClockValue,vectorclock:new()),
+        UpdatedClock = vectorclock:set(mydc, ClockValue,vectorclock:new()),
         gingko:update(Key, Type, TransactionId, {valueToken,ClockValue, []}),
         gingko:commit([Key], TransactionId, {1, 1234}, UpdatedClock),
         {ok,Data} = gingko:get_version(Key, Type, UpdatedClock,ignore),
@@ -181,7 +181,7 @@ mv_register_with_clock_test(_Config) ->
 
     lists:foreach(fun(Index) ->
         ClockValue = random:uniform(Index),
-        UpdatedClock = vectorclock:set_clock_of_dc(mydc, ClockValue,vectorclock:new()),
+        UpdatedClock = vectorclock:set(mydc, ClockValue,vectorclock:new()),
         {ok,Data} = gingko:get_version(Key, Type, UpdatedClock, UpdatedClock),
         ?assertEqual({Key,Type, [{valueToken,X} || X <- lists:seq(1,ClockValue)]}, Data)
   end, lists:seq(1,50))
@@ -194,7 +194,7 @@ counter_test_partial_log_reads(_Config) ->
     DownstreamOp = 1,
     lists:map(fun(Index) ->
         gingko:update(counter_multi, Type, TransactionId, DownstreamOp),
-        gingko:commit([counter_multi], TransactionId, {1, 1234}, vectorclock:set_clock_of_dc(mydc,Index,vectorclock:new())),
-        {ok, Data} = gingko:get_version(counter_multi, Type,vectorclock:set_clock_of_dc(mydc,Index,vectorclock:new()), ignore),
+        gingko:commit([counter_multi], TransactionId, {1, 1234}, vectorclock:set(mydc,Index,vectorclock:new())),
+        {ok, Data} = gingko:get_version(counter_multi, Type,vectorclock:set(mydc,Index,vectorclock:new()), ignore),
         ?_assertEqual({counter_multi,Type,Index},Data)
     end,lists:seq(1,5)).

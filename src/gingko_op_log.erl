@@ -356,7 +356,7 @@ read_all(Log, Terms, Cont) ->
 
 
 %% @doc reads terms from given log starting with a specific continuation and also returns the continuations with the read log entries.
--spec read_continuations(log(), [#log_read{}], continuation() | start) -> [{term(),continuation()}].
+-spec read_continuations(log(), [#log_read{}], continuation() | start) -> [#log_read{}].
 read_continuations(Log, Terms, Cont) ->
   case disk_log:chunk(Log, Cont) of
     eof -> Terms;
