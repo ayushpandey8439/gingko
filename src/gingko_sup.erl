@@ -8,7 +8,7 @@ start_link() ->
   supervisor:start_link(gingko_sup, []).
 
 init(_Args) ->
-  Worker = {?LOGGING_MASTER,
+    Worker = {?LOGGING_MASTER,
     {?LOGGING_MASTER, start_link, ["main_log", none]},
     permanent, 5000, worker, [?LOGGING_MASTER]},
 

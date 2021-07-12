@@ -146,7 +146,7 @@ handle_cast(start_recovery, State) when State#state.recovering == true ->
   LogName = State#state.log_name,
   Receiver = State#state.recovery_receiver,
   LogServer = State#state.sync_server,
-  logger:info("[~p] Async recovery started", [LogName]),
+  logger:notice("[~p] Async recovery started", [LogName]),
 
   GenServer = self(),
   AsyncRecovery = fun() ->
@@ -188,12 +188,12 @@ terminate(_Reason, State) ->
   {reply, {ok, Acc}, #state{}}. %% accumulated entries
 
 handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == true ->
-  logger:notice("[~p] Waiting for recovery: ~p", [State#state.log_name, From]),
+  logger:debug("[~p] Waiting for recovery: ~p", [State#state.log_name, From]),
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
 handle_call({add_log_entry, Data}, From, State) ->
-  logger:notice(#{
+  logger:debug(#{
     action => "Append to log",
     name => State#state.log_name,
     data => Data,
@@ -207,7 +207,7 @@ handle_call({add_log_entry, Data}, From, State) ->
   Waiting = State#state.waiting_for_reply,
 
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName}),
-  logger:notice(#{
+  logger:debug(#{
     action => "Logging",
     log => Log,
     index => NextIndex,
@@ -220,7 +220,7 @@ handle_call({add_log_entry, Data}, From, State) ->
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
   receive log_persisted -> ok end,
 
-  logger:info("[~p] Log entry at ~p persisted",
+  logger:debug("[~p] Log entry at ~p persisted",
     [State#state.log_name, NextIndex]),
 
   % index of another request may be up to date, send retry messages
@@ -235,7 +235,7 @@ handle_call({add_log_entry, Data}, From, State) ->
 
 handle_call(_Request, From, State)
   when State#state.recovering == true ->
-  logger:info("[~p] Read, waiting for recovery", [State#state.log_name]),
+  logger:debug("[~p] Read, waiting for recovery", [State#state.log_name]),
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
@@ -297,7 +297,7 @@ recover_all_logs(LogName, Receiver, LogServer) ->
   filelib:ensure_dir(LogPath),
 
   ProcessLogFile = fun(LogFile, Index) ->
-    logger:notice(#{
+    logger:debug(#{
       action => "Recovering logfile",
       log => LogName,
       file => LogFile
@@ -307,10 +307,6 @@ recover_all_logs(LogName, Receiver, LogServer) ->
 
     % read all terms
     Terms = read_all(Log),
-
-    logger:notice(#{
-      terms => Terms
-    }),
 
     % For each entry {log_recovery, {Index, Data}} is sent
     SendTerm = fun({LogIndex, Data}, _) -> Receiver ! {log_recovery, {LogIndex, Data}} end,
@@ -322,7 +318,7 @@ recover_all_logs(LogName, Receiver, LogServer) ->
     end,
 
     case Index =< LastIndex of
-      true -> logger:info("Jumping from ~p to ~p index", [Index, LastIndex]);
+      true -> logger:debug("Jumping from ~p to ~p index", [Index, LastIndex]);
       _ -> logger:emergency("Index corrupt! ~p to ~p jump found", [Index, LastIndex])
     end,
 
@@ -335,8 +331,8 @@ recover_all_logs(LogName, Receiver, LogServer) ->
   IndexAcc = 0,
 
   LastIndex = lists:foldl(ProcessLogFile, IndexAcc, LogFiles),
+  logger:debug("Receiver: ~p", [Receiver]),
 
-  logger:notice("Receiver: ~p", [Receiver]),
   Receiver ! log_recovery_done,
 
   LastIndex.

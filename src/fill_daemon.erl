@@ -52,7 +52,6 @@ build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
     {ok, Entry} -> Entry;
     error -> []
   end,
-  logger:info(#{ops => Ops, committed => CommittedOps}),
   % Index the object materialization with the continuation
   lists:foreach(fun(#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(Key, SnapshotTime,Continuation) end, FilteredContinuations),
 

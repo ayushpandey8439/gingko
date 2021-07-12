@@ -2,8 +2,6 @@
 %% @hidden
 -module(gingko_sync_server).
 
-
-
 -behaviour(gen_server).
 
 
@@ -41,7 +39,7 @@ init({LogName}) ->
 
 
 terminate(_Reason, State) ->
-  logger:notice(#{
+  logger:debug(#{
     action => "Shutdown log sync server",
     name => State#state.log_name
   }),
@@ -54,7 +52,7 @@ terminate(_Reason, State) ->
 
 %% @doc opens the log given by the server name (second argument) and the target node (third argument)
 handle_call({get_log, LogName}, _From, State) ->
-  logger:notice(#{
+  logger:debug(#{
     action => "Open log",
     log => LogName
   }),
@@ -67,7 +65,7 @@ handle_call({get_log, LogName}, _From, State) ->
 handle_cast({sync_log, LogName, ReplyTo}, State) ->
   Log = open_log(LogName),
 
-  logger:notice(#{
+  logger:debug(#{
     action => "Sync log to disk",
     log => State#state.log_name
   }),
@@ -93,7 +91,7 @@ code_change(_OldVsn, _State, _Extra) ->
 %% @doc ensures directory where the log is expected and opens the log file.
 %%      Recovers if required, logging found terms and bad bytes
 open_log(LogName) ->
-  logger:info("Trying to open log ~p",[LogName]),
+  logger:debug("Trying to open log ~p",[LogName]),
   filelib:ensure_dir(log_dir_base(LogName)),
 
   LogFile = log_dir_base(LogName) ++ "OP_LOG",

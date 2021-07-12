@@ -52,7 +52,7 @@ stop(_State) ->
 
 %% @equiv get_version(Key, Type, undefined)
 -spec get_version(key(), type()) -> {ok, snapshot()}.
-get_version(Key, Type) -> 
+get_version(Key, Type) ->
   get_version(Key, Type, ignore, ignore).
 %% New so the minimum timestamp is irrelevant and the last stale version in the cache is returned.
 
@@ -71,7 +71,8 @@ get_version(Key, Type) ->
 %% @param MaximumSnapshotTime if not 'undefined', then retrieves the latest object version which is not older than this timestamp
 -spec get_version(key(), type(), snapshot_time(),snapshot_time()) -> {ok, snapshot()}.
 get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
-  logger:info(#{function => "GET_VERSION", key => Key, type => Type, min_snapshot_timestamp => MinimumSnapshotTime, max_snapshot_timestamp => MaximumSnapshotTime}),
+  logger:notice("getversion"),
+  logger:debug(#{function => "GET_VERSION", key => Key, type => Type, min_snapshot_timestamp => MinimumSnapshotTime, max_snapshot_timestamp => MaximumSnapshotTime}),
 
   %% Ask the cache for the object.
   %% If tha cache has that object, it is returned.
@@ -79,7 +80,7 @@ get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
   %% All subsequent reads of the object will return from the cache without reading the whole log.
 
   {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
-  logger:info(#{step => "materialize", materialized => MaterializedObject}),
+  logger:debug(#{step => "materialize", materialized => MaterializedObject}),
   {ok, MaterializedObject}.
 
 
@@ -97,7 +98,8 @@ get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
 %% @param DownstreamOp the calculated downstream operation of a CRDT update
 -spec update(key(), type(), txid(), op()) -> ok | {error, reason()}.
 update(Key, Type, TransactionId, DownstreamOp) ->
-  logger:info(#{function => "UPDATE", key => Key, type => Type, transaction => TransactionId, op => DownstreamOp}),
+  logger:notice("update"),
+  logger:debug(#{function => "UPDATE", key => Key, type => Type, transaction => TransactionId, op => DownstreamOp}),
 
   Entry = #log_operation{
       tx_id = TransactionId,
@@ -131,7 +133,8 @@ commit(Keys, TransactionId, CommitTime)->
 
 -spec commit([key()], txid(), dc_and_commit_time(), snapshot_time()) -> ok.
 commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
-  logger:info(#{function => "COMMIT", keys => Keys, transaction => TransactionId, commit_timestamp => CommitTime, snapshot_timestamp => SnapshotTime}),
+  logger:notice("commit"),
+  logger:debug(#{function => "COMMIT", keys => Keys, transaction => TransactionId, commit_timestamp => CommitTime, snapshot_timestamp => SnapshotTime}),
 
   Entry = #log_operation{
       tx_id = TransactionId,
@@ -160,7 +163,7 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
 %% @param TransactionId the id of the transaction to abort
 -spec abort([key()], txid()) -> ok.
 abort(Keys, TransactionId) ->
-  logger:info(#{function => "ABORT", keys => Keys, transaction => TransactionId}),
+  logger:debug(#{function => "ABORT", keys => Keys, transaction => TransactionId}),
 
   Entry = #log_operation{
       tx_id = TransactionId,
