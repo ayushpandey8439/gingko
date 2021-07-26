@@ -18,13 +18,13 @@
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 
 
--record(cache_mgr_state, {cacheidentifiers::list()}).
+-record(cache_mgr_state, {cacheidentifiers::list(), current_size:: integer()}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
--spec get_from_cache(atom(), atom(), snapshot_time(), snapshot_time()) -> {ok, snapshot()}.
+-spec get_from_cache(atom(), antidote_crdt:typ(), snapshot_time(), snapshot_time()) -> {ok, snapshot()}.
 get_from_cache(ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime)->
   gen_server:call(?CACHE_DAEMON, {get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}, infinity).
 
@@ -57,42 +57,42 @@ init({CacheIdentifier, Levels, SegmentSize}) ->
       lists:append(CacheIdentifierList, [{CacheIdentifierID, SegmentSize}] )
                 end,
       CacheIdentifiers, lists:seq(1,Levels)),
-  {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers}}.
+  {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers, current_size = 0}}.
   
-handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{}) ->
-  Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data),
-  {reply, {ok, Result}, State};
+handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size = Size}) ->
+  Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data, Size),
+  {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};
 
-handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime}, _From, State = #cache_mgr_state{}) ->
+handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime}, _From, State = #cache_mgr_state{current_size = Size}) ->
   Reply =
     case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
     {error, not_exist} ->
       logger:debug("Cache Miss: Going to the log to materialize."),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
       {SnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
-      UpdatedIdentifiers = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, SnapshotTime, MaterializedObject}),
-      {ObjectKey, Type, MaterializedObject};
+      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, SnapshotTime, MaterializedObject}, Size),
+      {ObjectKey, Type, MaterializedObject, SnapshotTime};
     {ok, {ObjectKey, Type, SnapshotTime, MaterializedObject}} ->
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, SnapshotTime),
       SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime,SnapshotTime),
-      UpdatedMaterialization = if
+      {MaterializationTimestamp, UpdatedMaterialization} = if
          SnapshotTimeLowerMinTime == true ->
            logger:debug("Cache hit, Object in the cache is stale. ~p ~p",[SnapshotTime, MaterializedObject]),
            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, SnapshotTime, MaximumSnapshotTime),
            % Insert the element in the cache for later reads.
-           UpdatedIdentifiers = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}),
-           Materialization;
+           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
+           {Timestamp, Materialization};
          SnapshotTimeHigherMaxTime == true ->
            logger:debug("Cache hit, Object in the cache has a timestamp higher than the required minimum."),
            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
-           UpdatedIdentifiers = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}),
-           Materialization;
+           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
+           {Timestamp, Materialization};
          true ->
            logger:debug("Cache hit, Object is within bounds"),
            UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,
-           MaterializedObject
+           {SnapshotTime, MaterializedObject}
       end,
-      {ObjectKey, Type, UpdatedMaterialization}
+      {ObjectKey, Type, UpdatedMaterialization, MaterializationTimestamp}
   end,
   {reply, {ok, Reply}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers}};
 
@@ -129,13 +129,16 @@ cacheLookup([{CacheStore,_Size}| CacheIdentifiers], Key) ->
     [Object] -> {ok, Object}
   end.
 
-cacheInsert(CacheIdentifiers, Data) ->
+cacheInsert(CacheIdentifiers, Data, Size) ->
   {CacheStore, MaxSize} = lists:nth(1, CacheIdentifiers),
-  TableSize = ets:info(CacheStore, size),
   ets:insert(CacheStore, Data),
-  case TableSize >= MaxSize of
-    false -> CacheIdentifiers;
-    true -> garbageCollect(CacheIdentifiers)
+  case Size >= MaxSize of
+    false -> {CacheIdentifiers, Size+1};
+    true ->
+      case ets:info(CacheStore, size) >= MaxSize of
+        false -> {CacheIdentifiers, Size+1};
+        true -> {garbageCollect(CacheIdentifiers), 0}
+      end
   end.
 
 -spec garbageCollect(list()) -> list().

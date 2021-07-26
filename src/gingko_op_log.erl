@@ -12,7 +12,7 @@
 -type gen_from() :: any().
 
 -export([start_link/2]).
--export([append/2, read_log_entries/4, read_log_entries/6]).
+-export([append/3, read_log_entries/4, read_log_entries/6]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
@@ -25,11 +25,11 @@
 %%
 %% @param Log the process returned by start_link.
 %% @param Entry the log record to append.
--spec append(node(), log_entry()) -> ok  | {error, Reason :: term()}.
-append(Log, Entry) ->
-  case gen_server:call(Log, {add_log_entry, Entry}) of
+-spec append(node(),atom(), log_entry()) -> ok  | {error, Reason :: term()}.
+append(Log, Key, Entry) ->
+  case gen_server:call(Log, {add_log_entry,Key, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
-    retry -> logger:debug("Retrying request"), append(Log, Entry);
+    retry -> logger:debug("Retrying request"), append(Log, Key, Entry);
     Reply -> Reply
   end.
 
@@ -180,7 +180,7 @@ terminate(_Reason, State) ->
 %% or
 %% 2) reads the log
 -spec handle_call
-    ({add_log_entry, log_entry()}, gen_from(), #state{}) ->
+    ({add_log_entry, atom(), log_entry()}, gen_from(), #state{}) ->
   {noreply, #state{}} | %% if still recovering
   {reply, {error, index_already_written}, #state{}} | %% if index is already written
   {reply, ok, #state{}}; %% entry is persisted
@@ -193,7 +193,7 @@ handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == 
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({add_log_entry, Data}, From, State) ->
+handle_call({add_log_entry, Key, Data}, From, State) ->
   logger:debug(#{
     action => "Append to log",
     name => State#state.log_name,
@@ -215,7 +215,6 @@ handle_call({add_log_entry, Data}, From, State) ->
     data => Data
   }),
 
-  ok = disk_log:alog(Log, {NextIndex, Data}),
   Index_Continuation = case disk_log:chunk(Log, start, infinity) of
     {Continuation, _Terms} ->
       Continuation;
@@ -224,7 +223,14 @@ handle_call({add_log_entry, Data}, From, State) ->
     _ ->
       start
   end,
-  logger:notice("The Chunk return for infinity gave: ~p",[Index_Continuation]),
+  %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
+  case log_index_daemon:get_continuation(Key, ignore) of
+    {ok, start} -> log_index_daemon:add_to_index(Key, ignore, Index_Continuation);
+    {ok, Cont} -> ok
+  end,
+
+  ok = disk_log:alog(Log, {NextIndex, Data}),
+
   % wait for sync reply
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
   receive log_persisted -> ok end,

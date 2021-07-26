@@ -78,9 +78,9 @@ get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
 
-  {ok, MaterializedObject} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
-  logger:debug(#{step => "materialize", materialized => MaterializedObject}),
-  {ok, MaterializedObject}.
+  {ok, {Key, Type, Value, Timestamp}} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
+  logger:debug(#{step => "materialize", materialized => {Key, Type, Value, Timestamp}}),
+  {ok, {Key, Type, Value}}.
 
 
 %% @doc Applies an update for the given key for given transaction id with a calculated valid downstream operation.
@@ -110,7 +110,7 @@ update(Key, Type, TransactionId, DownstreamOp) ->
     bucket_op_number = #op_number{}, % not used
     log_operation = Entry
   },
-  gingko_op_log:append(?LOGGING_MASTER, LogRecord).
+  gingko_op_log:append(?LOGGING_MASTER, Key, LogRecord).
 
 
 %% @doc Commits all operations belonging to given transaction id for given list of keys.
@@ -144,7 +144,7 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
     log_operation = Entry
   },
 
-  lists:map(fun(_Key) -> gingko_op_log:append(?LOGGING_MASTER, LogRecord) end, Keys),
+  lists:map(fun(Key) -> gingko_op_log:append(?LOGGING_MASTER, Key, LogRecord) end, Keys),
   ok.
 
 
@@ -173,7 +173,7 @@ abort(Keys, TransactionId) ->
     log_operation = Entry
   },
 
-  lists:map(fun(_Key) -> gingko_op_log:append(?LOGGING_MASTER, LogRecord) end, Keys),
+  lists:map(fun(Key) -> gingko_op_log:append(?LOGGING_MASTER, Key, LogRecord) end, Keys),
   ok.
 
 

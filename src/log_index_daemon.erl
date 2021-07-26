@@ -22,11 +22,11 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-get_continuation(Key, SnapshotTimestamp) ->
-  gen_server:call(?LOG_INDEX_DAEMON, {get_continuation, Key, SnapshotTimestamp}).
+get_continuation(Key, Timestamp) ->
+  gen_server:call(?LOG_INDEX_DAEMON, {get_continuation, {Key, Timestamp}}).
 
-add_to_index(Key, SnapshotTimestamp, Continuation) ->
-  gen_server:call(?LOG_INDEX_DAEMON, {index, Key, SnapshotTimestamp, Continuation}).
+add_to_index(Key, Timestamp, Continuation) ->
+  gen_server:call(?LOG_INDEX_DAEMON, {index, {Key, Timestamp}, Continuation}).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
@@ -41,19 +41,19 @@ init(IndexIdentifier) ->
     registered_as => ?MODULE,
     pid => self()
   }),
-  ets:new(IndexIdentifier, [set, named_table, ?TABLE_CONCURRENCY]),
+  ets:new(IndexIdentifier, [ordered_set, named_table, ?TABLE_CONCURRENCY]),
   {ok, #log_index_daemon_state{indexidentifier = IndexIdentifier}}.
 
-handle_call({get_continuation, Key, _SnapshotTimestamp}, _From, State = #log_index_daemon_state{}) ->
+handle_call({get_continuation, {Key, Timestamp}}, _From, State = #log_index_daemon_state{}) ->
   Continuation =
-    case ets:lookup(State#log_index_daemon_state.indexidentifier, Key) of
+    case ets:lookup(State#log_index_daemon_state.indexidentifier, {Key, Timestamp}) of
       [] -> start;
-      [{_Key, Clock, Cont}] -> Cont
+      [{_Key, Cont}] -> Cont
     end,
   {reply, {ok, Continuation} , State};
 
-handle_call({index, Key, SnapshotTimestamp, Continuation}, _From, State = #log_index_daemon_state{}) ->
-  Result = ets:insert(State#log_index_daemon_state.indexidentifier, {Key, SnapshotTimestamp, Continuation}),
+handle_call({index, {Key, Timestamp}, Continuation}, _From, State = #log_index_daemon_state{}) ->
+  Result = ets:insert_new(State#log_index_daemon_state.indexidentifier, {{Key, Timestamp}, Continuation}),
   {reply, {ok, Result}, State}.
 
 handle_cast(_Request, State = #log_index_daemon_state{}) ->

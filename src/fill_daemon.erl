@@ -40,7 +40,7 @@ build(Key, Type, MinSnapshotTime, MaximumSnapshotTime) ->
   build(Key, Type, materializer:create_snapshot(Type), MinSnapshotTime, MaximumSnapshotTime).
 build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
   % Go to the index and get the minimum continuation we can start from.
-  {ok, ContinuationObject} = log_index_daemon:get_continuation(Key,MinSnapshotTime),
+  {ok, ContinuationObject} = log_index_daemon:get_continuation(Key, MinSnapshotTime),
   % TODO: In the cached version when the cache is invalidated, we need to check if the continuiation we have needs to be deleted also
   % TODO: Or if there is another way we can check that the cached version can be rebiult without
   % With the list of log entries for the key, we also have the list of continuation objects.
