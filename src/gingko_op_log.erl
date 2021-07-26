@@ -79,12 +79,12 @@ read_log_entries(Log, FirstIndex, LastIndex,Continuation, FoldFunction, Accumula
   sync_server :: pid(),
 
   % stores current writable index
-  next_index :: integer()
+  next_index :: integer(),
 
   % Index storing the LSN with the continuation from which the read has to start.
   % This will affect the filtering being done in line 250.
 
-  %log_index :: #{integer() => disk_log:continuation()}
+  current_continuation:: continuation()
 
 }).
 
@@ -127,7 +127,8 @@ init({LogName, RecoveryReceiver}) ->
     recovery_receiver = ActualReceiver,
     recovering = true,
     sync_server = SyncServer,
-    next_index = ?STARTING_INDEX
+    next_index = ?STARTING_INDEX,
+    current_continuation = start
   }}.
 
 
@@ -215,7 +216,15 @@ handle_call({add_log_entry, Data}, From, State) ->
   }),
 
   ok = disk_log:alog(Log, {NextIndex, Data}),
-
+  Index_Continuation = case disk_log:chunk(Log, start, infinity) of
+    {Continuation, _Terms} ->
+      Continuation;
+    {Continuation, _Terms, _BadBytes} ->
+      Continuation;
+    true ->
+      start
+  end,
+  logger:notice("The Chunk return for infinity gave: ~p",[Index_Continuatio]),
   % wait for sync reply
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
   receive log_persisted -> ok end,

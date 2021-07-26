@@ -110,7 +110,6 @@ update(Key, Type, TransactionId, DownstreamOp) ->
     bucket_op_number = #op_number{}, % not used
     log_operation = Entry
   },
-
   gingko_op_log:append(?LOGGING_MASTER, LogRecord).
 
 

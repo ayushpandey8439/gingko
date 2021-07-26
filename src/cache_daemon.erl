@@ -141,7 +141,7 @@ cacheInsert(CacheIdentifiers, Data) ->
 
 garbageCollect([])->
   [];
-garbageCollect(CacheIdentifiers)->
+garbageCollect(CacheIdentifiers) ->
   logger:debug("Initiating Garbage Collection"),
   {LastSegment, Size} = lists:last(CacheIdentifiers),
   ets:delete(LastSegment),

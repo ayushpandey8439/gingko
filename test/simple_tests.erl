@@ -209,4 +209,4 @@ cache_segment_GC_test(_Config) ->
         gingko:commit([Index], TransactionId, {1, 1234}, vectorclock:set(mydc,Index,vectorclock:new())),
         {ok, Data} = gingko:get_version(Index, Type,vectorclock:set(mydc,Index,vectorclock:new()), ignore),
         ?_assertEqual({Index,Type,1},Data)
-  end,lists:seq(1,500)).
+  end,lists:seq(1,50)).
