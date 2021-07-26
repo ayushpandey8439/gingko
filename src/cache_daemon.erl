@@ -18,7 +18,7 @@
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 
 
--record(cache_mgr_state, {cacheidentifiers::#{}}).
+-record(cache_mgr_state, {cacheidentifiers::list()}).
 
 %%%===================================================================
 %%% API
@@ -138,9 +138,7 @@ cacheInsert(CacheIdentifiers, Data) ->
     true -> garbageCollect(CacheIdentifiers)
   end.
 
-
-garbageCollect([])->
-  [];
+-spec garbageCollect(list()) -> list().
 garbageCollect(CacheIdentifiers) ->
   logger:debug("Initiating Garbage Collection"),
   {LastSegment, Size} = lists:last(CacheIdentifiers),

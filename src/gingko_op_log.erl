@@ -8,7 +8,7 @@
 %% TODO
 -type server() :: any().
 -type log() :: any().
--type log_entry() :: any().
+-type log_entry() :: #log_record{}.
 -type gen_from() :: any().
 
 -export([start_link/2]).
@@ -25,7 +25,7 @@
 %%
 %% @param Log the process returned by start_link.
 %% @param Entry the log record to append.
--spec append(node(), #log_record{}) -> ok  | {error, Reason :: term()}.
+-spec append(node(), log_entry()) -> ok  | {error, Reason :: term()}.
 append(Log, Entry) ->
   case gen_server:call(Log, {add_log_entry, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
@@ -221,10 +221,10 @@ handle_call({add_log_entry, Data}, From, State) ->
       Continuation;
     {Continuation, _Terms, _BadBytes} ->
       Continuation;
-    true ->
+    _ ->
       start
   end,
-  logger:notice("The Chunk return for infinity gave: ~p",[Index_Continuatio]),
+  logger:notice("The Chunk return for infinity gave: ~p",[Index_Continuation]),
   % wait for sync reply
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
   receive log_persisted -> ok end,
