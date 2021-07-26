@@ -13,7 +13,7 @@ init(_Args) ->
     permanent, 5000, worker, [?LOGGING_MASTER]},
 
   CacheDaemon = {?CACHE_DAEMON,
-    {?CACHE_DAEMON,start_link,[gingko_cache]},
+    {?CACHE_DAEMON,start_link,[gingko_cache, 2 , 20]},
     permanent,5000,worker,[?CACHE_DAEMON]},
 
   CheckpointDaemon = {checkpoint_daemon,

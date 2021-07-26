@@ -71,7 +71,6 @@ get_version(Key, Type) ->
 %% @param MaximumSnapshotTime if not 'undefined', then retrieves the latest object version which is not older than this timestamp
 -spec get_version(key(), type(), snapshot_time(),snapshot_time()) -> {ok, snapshot()}.
 get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
-  logger:notice("getversion"),
   logger:debug(#{function => "GET_VERSION", key => Key, type => Type, min_snapshot_timestamp => MinimumSnapshotTime, max_snapshot_timestamp => MaximumSnapshotTime}),
 
   %% Ask the cache for the object.
@@ -98,7 +97,6 @@ get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
 %% @param DownstreamOp the calculated downstream operation of a CRDT update
 -spec update(key(), type(), txid(), op()) -> ok | {error, reason()}.
 update(Key, Type, TransactionId, DownstreamOp) ->
-  logger:notice("update"),
   logger:debug(#{function => "UPDATE", key => Key, type => Type, transaction => TransactionId, op => DownstreamOp}),
 
   Entry = #log_operation{
@@ -133,7 +131,6 @@ commit(Keys, TransactionId, CommitTime)->
 
 -spec commit([key()], txid(), dc_and_commit_time(), snapshot_time()) -> ok.
 commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
-  logger:notice("commit"),
   logger:debug(#{function => "COMMIT", keys => Keys, transaction => TransactionId, commit_timestamp => CommitTime, snapshot_timestamp => SnapshotTime}),
 
   Entry = #log_operation{

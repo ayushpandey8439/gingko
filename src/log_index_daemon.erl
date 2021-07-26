@@ -41,21 +41,20 @@ init(IndexIdentifier) ->
     registered_as => ?MODULE,
     pid => self()
   }),
-  ets:new(IndexIdentifier, [named_table, ?TABLE_CONCURRENCY]),
+  ets:new(IndexIdentifier, [set, named_table, ?TABLE_CONCURRENCY]),
   {ok, #log_index_daemon_state{indexidentifier = IndexIdentifier}}.
 
-handle_call({get_continuation, Key, SnapshotTimestamp}, _From, State = #log_index_daemon_state{}) ->
+handle_call({get_continuation, Key, _SnapshotTimestamp}, _From, State = #log_index_daemon_state{}) ->
   Continuation =
-    case ets:lookup(State#log_index_daemon_state.indexidentifier, {Key, SnapshotTimestamp}) of
+    case ets:lookup(State#log_index_daemon_state.indexidentifier, Key) of
       [] -> start;
-      [List] -> List
-
+      [{_Key, Clock, Cont}] -> Cont
     end,
   {reply, {ok, Continuation} , State};
 
 handle_call({index, Key, SnapshotTimestamp, Continuation}, _From, State = #log_index_daemon_state{}) ->
-  ets:insert(State#log_index_daemon_state.indexidentifier, {{Key, SnapshotTimestamp}, Continuation}),
-  {reply, ok, State}.
+  Result = ets:insert(State#log_index_daemon_state.indexidentifier, {Key, SnapshotTimestamp, Continuation}),
+  {reply, {ok, Result}, State}.
 
 handle_cast(_Request, State = #log_index_daemon_state{}) ->
   {noreply, State}.

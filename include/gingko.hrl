@@ -110,7 +110,7 @@
     log_operation :: #log_operation{}
 }).
 
--type continuation() :: disk_log:continuation().
+-type continuation() :: disk_log:continuation() | start.
 
 
 -record(log_read, {
@@ -123,4 +123,14 @@
   key :: atom(),
   snapshot_time:: snapshot_time(),
   continuation:: continuation()
+}).
+
+
+-record(cache_object, {
+  key:: atom(),
+  type:: antidote_crdt:typ(),
+  snapshot_time:: snapshot_time(),
+  snapshot:: snapshot(),
+  count:: integer()
+
 }).

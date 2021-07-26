@@ -73,7 +73,7 @@ filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Con
 }.
 handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations) ->
   #update_log_payload{key = PayloadKey} = OpPayload,
-  case (Key == {key, PayloadKey}) or (Key == ignore) of
+  case (Key == PayloadKey) or (Key == ignore) of
     true ->
       % key matches: append to all operations accumulator
       filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, dict:append(TxId, OpPayload, Ops), CommittedOpsDict, Continuations);

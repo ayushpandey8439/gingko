@@ -9,7 +9,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/3]).
 -export([get_from_cache/4, put_in_cache/1, invalidate_cache_objects/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
@@ -18,7 +18,7 @@
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 
 
--record(cache_mgr_state, {cacheidentifier::atom()}).
+-record(cache_mgr_state, {cacheidentifiers::#{}}).
 
 %%%===================================================================
 %%% API
@@ -40,31 +40,39 @@ invalidate_cache_objects(Keys) ->
 %%% Spawning and gen_server implementation
 %%%===================================================================
 
-start_link(CacheIdentifier) ->
-  gen_server:start_link({local, ?MODULE}, ?MODULE, CacheIdentifier, []).
+start_link(CacheIdentifier, Levels, SegmentSize) ->
+  gen_server:start_link({local, ?MODULE}, ?MODULE, {CacheIdentifier, Levels, SegmentSize}, []).
 
-init(CacheIdentifier) ->
+init({CacheIdentifier, Levels, SegmentSize}) ->
   logger:notice(#{
-    action => "Starting Cache Daemon",
+    action => "Starting Cache Daemon with "++ integer_to_list(Levels) ++ " Segments of "++ integer_to_list(SegmentSize)++" objects each",
     registered_as => ?MODULE,
     pid => self()
   }),
-  ets:new(CacheIdentifier, [named_table, ?TABLE_CONCURRENCY]),
-  {ok, #cache_mgr_state{cacheidentifier = CacheIdentifier}}.
+  CacheIdentifiers = [],
+  FinalIdentifiers =
+    lists:foldl(fun(Level, CacheIdentifierList) ->
+      CacheIdentifierID = list_to_atom(atom_to_list(CacheIdentifier)++integer_to_list(Level)),
+      ets:new(CacheIdentifierID, [named_table, ?TABLE_CONCURRENCY]),
+      lists:append(CacheIdentifierList, [{CacheIdentifierID, SegmentSize}] )
+                end,
+      CacheIdentifiers, lists:seq(1,Levels)),
+  {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers}}.
   
 handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{}) ->
-  Result = ets:insert(State#cache_mgr_state.cacheidentifier, Data),
+  Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data),
   {reply, {ok, Result}, State};
 
 handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime}, _From, State = #cache_mgr_state{}) ->
-  Reply = case ets:lookup(State#cache_mgr_state.cacheidentifier, ObjectKey) of
-    [] ->
+  Reply =
+    case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
+    {error, not_exist} ->
       logger:debug("Cache Miss: Going to the log to materialize."),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
       {SnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
-      ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, SnapshotTime, MaterializedObject}),
+      UpdatedIdentifiers = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, SnapshotTime, MaterializedObject}),
       {ObjectKey, Type, MaterializedObject};
-    [{ObjectKey, Type, SnapshotTime, MaterializedObject}] ->
+    {ok, {ObjectKey, Type, SnapshotTime, MaterializedObject}} ->
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, SnapshotTime),
       SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime,SnapshotTime),
       UpdatedMaterialization = if
@@ -72,24 +80,27 @@ handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapsho
            logger:debug("Cache hit, Object in the cache is stale. ~p ~p",[SnapshotTime, MaterializedObject]),
            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, SnapshotTime, MaximumSnapshotTime),
            % Insert the element in the cache for later reads.
-           ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, Timestamp, Materialization}),
+           UpdatedIdentifiers = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}),
            Materialization;
          SnapshotTimeHigherMaxTime == true ->
            logger:debug("Cache hit, Object in the cache has a timestamp higher than the required minimum."),
            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
-           ets:insert(State#cache_mgr_state.cacheidentifier, {ObjectKey, Type, Timestamp, Materialization}),
+           UpdatedIdentifiers = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}),
            Materialization;
          true ->
            logger:debug("Cache hit, Object is within bounds"),
+           UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,
            MaterializedObject
       end,
       {ObjectKey, Type, UpdatedMaterialization}
   end,
-  {reply, {ok, Reply}, State};
+  {reply, {ok, Reply}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers}};
 
 handle_call({invalidate_objects, Keys}, _From, State = #cache_mgr_state{}) ->
-  lists:foreach(fun(ObjectKey) -> ets:delete(State#cache_mgr_state.cacheidentifier, ObjectKey) end, Keys), 
-  %% The delete here can also be replaced with tombstones but then the reads will have to check for staleness adding an extra operation.
+  {CacheStore, _Size} = lists:nth(1, State#cache_mgr_state.cacheidentifiers),
+  lists:foreach(fun(ObjectKey) -> ets:delete(CacheStore, ObjectKey) end, Keys),
+  %% The delete here can also be replaced with tombstones.
+  %% Then the reads will have to check for staleness adding an extra operation.
   %% This will have consequences when the reads are disproportionately high compared to the commits and writes.
   {reply, ok, State}.
 
@@ -110,34 +121,36 @@ code_change(_OldVsn, State = #cache_mgr_state{}, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+cacheLookup([],_Key) ->
+  {error, not_exist};
+cacheLookup([{CacheStore,_Size}| CacheIdentifiers], Key) ->
+  case ets:lookup(CacheStore, Key) of
+    [] -> cacheLookup(CacheIdentifiers, Key);
+    [Object] -> {ok, Object}
+  end.
+
+cacheInsert(CacheIdentifiers, Data) ->
+  {CacheStore, MaxSize} = lists:nth(1, CacheIdentifiers),
+  TableSize = ets:info(CacheStore, size),
+  ets:insert(CacheStore, Data),
+  case TableSize >= MaxSize of
+    false -> CacheIdentifiers;
+    true -> garbageCollect(CacheIdentifiers)
+  end.
 
 
+garbageCollect([])->
+  [];
+garbageCollect(CacheIdentifiers)->
+  logger:debug("Initiating Garbage Collection"),
+  {LastSegment, Size} = lists:last(CacheIdentifiers),
+  ets:delete(LastSegment),
+  ets:new(LastSegment, [named_table, ?TABLE_CONCURRENCY]),
+  SubList = lists:droplast(CacheIdentifiers),
+  UpdatedCacheIdentifiers = lists:append([{LastSegment,Size}],SubList),
+  logger:debug("New CacheIdentifier List is ~p ~n",[UpdatedCacheIdentifiers]),
+  UpdatedCacheIdentifiers.
 
 %%%===================================================================
 %%% Unit Tests
 %%%===================================================================
-
--include_lib("eunit/include/eunit.hrl").
-
-main_test_() ->
-  {foreach,
-    fun setup/0,
-    fun cleanup/1,
-    [
-      fun cacheInsert_test/1
-    ]}.
-
-
-setup() ->
-  {ok, Pid} = cache_daemon:start_link(gingko_cache),
-  Pid.
-
-cleanup(Pid) ->
-  gen_server:stop(Pid).
-
-cacheInsert_test(Pid) ->
-  fun() ->
-    InsertResult = put_in_cache({cacheInsertKey,antidote_crdt_counter_pn,vectorclock:new()}),
-    CacheData = ets:lookup(gingko_cache, cacheInsertKey),
-    ?assertEqual([{cacheInsertKey,antidote_crdt_counter_pn,vectorclock:new()}],CacheData)
-  end.
