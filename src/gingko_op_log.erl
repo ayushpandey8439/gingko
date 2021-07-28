@@ -12,7 +12,7 @@
 -type gen_from() :: any().
 
 -export([start_link/2]).
--export([append/3, read_log_entries/4, read_log_entries/6]).
+-export([append/3, read_log_entries/4, read_log_entries/2]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
@@ -36,10 +36,10 @@ append(Log, Key, Entry) ->
 
 %% @doc Read all log entries with a simple list accumulator.
 %% @equiv read_log_entries(Log, FirstIndex, LastIndex, fun(D,Acc)->Acc++[D]end,[])
--spec read_log_entries(node(), integer(), integer() | all, continuation() | start) -> {ok, [{integer(),#log_record{}}]}.
-read_log_entries(Log, FirstIndex, LastIndex, Continuation) ->
+-spec read_log_entries(node(), continuation() | start) -> {ok, [{integer(),#log_record{}}]}.
+read_log_entries(Log, Continuation) ->
   F = fun(D, Acc) -> Acc ++ [D] end,
-  read_log_entries(Log, FirstIndex, LastIndex,Continuation, F, []).
+  read_log_entries(Log,Continuation, F, []).
 
 
 %% @doc Read all log entries belonging to the given log and in a certain range with a custom accumulator.
@@ -52,11 +52,10 @@ read_log_entries(Log, FirstIndex, LastIndex, Continuation) ->
 %% @param LastIndex stop at this index, inclusive
 %% @param FoldFunction function that takes a single log entry and the current accumulator and returns the new accumulator
 %% @param Starting accumulator
--spec read_log_entries(node(), integer(), integer() | all, continuation() | start,
-    fun((#log_record{}, Acc) -> Acc), Acc) -> {ok, Acc}.
-read_log_entries(Log, FirstIndex, LastIndex,Continuation, FoldFunction, Accumulator) ->
-  case gen_server:call(Log, {read_log_entries, FirstIndex, LastIndex,Continuation, FoldFunction, Accumulator}) of
-    retry -> logger:debug("Retrying request"), read_log_entries(Log, FirstIndex, LastIndex,Continuation, FoldFunction, Accumulator);
+-spec read_log_entries(node(), continuation() | start, fun((#log_record{}, Acc) -> Acc), Acc) -> {ok, Acc}.
+read_log_entries(Log,Continuation, FoldFunction, Accumulator) ->
+  case gen_server:call(Log, {read_log_entries,Continuation, FoldFunction, Accumulator}) of
+    retry -> logger:debug("Retrying request"), read_log_entries(Log,Continuation, FoldFunction, Accumulator);
     Reply -> Reply
   end.
 
@@ -224,10 +223,7 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
       start
   end,
   %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
-  case log_index_daemon:get_continuation(Key, ignore) of
-    {ok, start} -> log_index_daemon:add_to_index(Key, ignore, Index_Continuation);
-    {ok, Cont} -> ok
-  end,
+  log_index_daemon:add_to_index(Key, ignore, Index_Continuation),
 
   ok = disk_log:alog(Log, {NextIndex, Data}),
 
@@ -254,7 +250,7 @@ handle_call(_Request, From, State)
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({read_log_entries, FirstIndex, LastIndex,Continuation, F, Acc}, _From, State) ->
+handle_call({read_log_entries,Continuation, F, Acc}, _From, State) ->
   LogName = State#state.log_name,
   LogServer = State#state.sync_server,
   Waiting = State#state.waiting_for_reply,

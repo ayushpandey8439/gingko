@@ -39,7 +39,8 @@ fixture_test_() ->
             fun clock_cache_miss_test/1,
             fun mv_register_with_clock_test/1,
             fun counter_test_partial_log_reads/1,
-            fun cache_segment_GC_test/1
+            fun cache_segment_GC_test/1,
+            fun partial_log_read_test/1
         ]
     }.
 
@@ -210,3 +211,17 @@ cache_segment_GC_test(_Config) ->
         {ok, Data} = gingko:get_version(Index, Type,vectorclock:set(mydc,Index,vectorclock:new()), ignore),
         ?_assertEqual({Index,Type,1},Data)
   end,lists:seq(1,50)).
+
+
+partial_log_read_test(_Config) ->
+    TransactionId = arbitrary_txid,
+    Type = antidote_crdt_counter_pn,
+    DownstreamOp = 1,
+    lists:map(fun(_Index) -> gingko:update(dummy_key, Type, TransactionId, DownstreamOp) end,lists:seq(1,500)),
+    gingko:commit([dummy_key], TransactionId, {1, 1234}, vectorclock:set(mydc,1,vectorclock:new())),
+    {ok, Data} = gingko:get_version(dummy_key, Type,vectorclock:set(mydc,2,vectorclock:new()), ignore),
+    lists:map(fun(_Index) -> gingko:update(dummy_key, Type, TransactionId, DownstreamOp) end,lists:seq(1,10)),
+    gingko:commit([dummy_key], TransactionId, {1, 1234}, vectorclock:set(mydc,3,vectorclock:new())),
+    {ok, Data1} = gingko:get_version(dummy_key, Type,vectorclock:set(mydc,4,vectorclock:new()), ignore),
+    ?_assertEqual({dummy_key,Type,500},Data),
+    ?_assertEqual({dummy_key,Type,510},Data1).

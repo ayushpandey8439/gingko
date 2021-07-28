@@ -10,7 +10,7 @@
 -author("pandey").
 
 %% API
--export([check_max_time_le/2, check_min_time_gt/2]).
+-export([check_max_time_le/2, check_min_time_gt/2, check_max_time_lt/2]).
 
 
 
@@ -24,4 +24,10 @@ check_min_time_gt(SnapshotTime, MinSnapshotTime) when SnapshotTime == ignore->
 check_max_time_le(SnapshotTime, MaxSnapshotTime) when SnapshotTime =/= ignore ->
   ((MaxSnapshotTime == ignore) orelse (vectorclock:le(SnapshotTime, MaxSnapshotTime)));
 check_max_time_le(SnapshotTime, MaxSnapshotTime) when SnapshotTime == ignore ->
+  false.
+
+-spec check_max_time_lt(vectorclock:vectorclock(),vectorclock:vectorclock() | ignore) -> boolean().
+check_max_time_lt(SnapshotTime, MaxSnapshotTime) when SnapshotTime =/= ignore ->
+  ((MaxSnapshotTime == ignore) orelse (vectorclock:lt(SnapshotTime, MaxSnapshotTime)));
+check_max_time_lt(SnapshotTime, MaxSnapshotTime) when SnapshotTime == ignore ->
   false.

@@ -44,15 +44,17 @@ build(Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime) ->
   % TODO: In the cached version when the cache is invalidated, we need to check if the continuiation we have needs to be deleted also
   % TODO: Or if there is another way we can check that the cached version can be rebiult without
   % With the list of log entries for the key, we also have the list of continuation objects.
-  {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, 0, all, ContinuationObject),
+  {ok, Data} = gingko_op_log:read_log_entries(?LOGGING_MASTER, ContinuationObject),
   logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
-  {Ops, CommittedOps, FilteredContinuations} = log_utilities:filter_terms_for_key(Data, Key, MinSnapshotTime, MaximumSnapshotTime, dict:new(), dict:new(),[]),
+  logger:debug("The log read was of size ~p.",[length(Data)]),
+  {Ops, CommittedOps, FilteredContinuations} = log_utilities:filter_terms_for_key(Data, Key, MinSnapshotTime, MaximumSnapshotTime, maps:new(), maps:new(),[]),
   logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
-
+  logger:debug("The filtered Log is ~p long.",[length(Data)]),
   % TODO: Possible improvement to get rid of dict find and convert the dictionary to list directly. The dictionary is already filtered by key.
-  PayloadForKey = case dict:find(Key, CommittedOps) of
-    {ok, Entry} -> Entry;
-    error -> []
+  PayloadForKey = case maps:get(Key, CommittedOps, error) of
+    error -> [];
+    Entry -> Entry
+
   end,
   % Index the object materialization with the continuation
   lists:foreach(fun(#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(Key, SnapshotTime,Continuation) end, FilteredContinuations),
