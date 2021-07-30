@@ -12,7 +12,7 @@
 -type gen_from() :: any().
 
 -export([start_link/2]).
--export([append/3, read_log_entries/4, read_log_entries/2]).
+-export([append/3, read_log_entries/3]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
@@ -32,16 +32,6 @@ append(Log, Key, Entry) ->
     retry -> logger:debug("Retrying request"), append(Log, Key, Entry);
     Reply -> Reply
   end.
-
-
-%% @doc Read all log entries with a simple list accumulator.
-%% @equiv read_log_entries(Log, FirstIndex, LastIndex, fun(D,Acc)->Acc++[D]end,[])
--spec read_log_entries(node(), continuation() | start) -> {ok, [{integer(),#log_record{}}]}.
-read_log_entries(Log, Continuation) ->
-  F = fun(D, Acc) -> Acc ++ [D] end,
-  read_log_entries(Log,Continuation, F, []).
-
-
 %% @doc Read all log entries belonging to the given log and in a certain range with a custom accumulator.
 %%
 %% The function works similar to lists:foldl for reading the entries.
@@ -52,10 +42,10 @@ read_log_entries(Log, Continuation) ->
 %% @param LastIndex stop at this index, inclusive
 %% @param FoldFunction function that takes a single log entry and the current accumulator and returns the new accumulator
 %% @param Starting accumulator
--spec read_log_entries(node(), continuation() | start, fun((#log_record{}, Acc) -> Acc), Acc) -> {ok, Acc}.
-read_log_entries(Log,Continuation, FoldFunction, Accumulator) ->
-  case gen_server:call(Log, {read_log_entries,Continuation, FoldFunction, Accumulator}) of
-    retry -> logger:debug("Retrying request"), read_log_entries(Log,Continuation, FoldFunction, Accumulator);
+-spec read_log_entries(node(), atom(), continuation() | start) -> {ok, [#log_read{}]}.
+read_log_entries(Log,Key, Continuation) ->
+  case gen_server:call(Log, {read_log_entries, Key, Continuation}) of
+    retry -> logger:debug("Retrying request"), read_log_entries(Log,Key, Continuation);
     Reply -> Reply
   end.
 
@@ -180,12 +170,13 @@ terminate(_Reason, State) ->
 %% 2) reads the log
 -spec handle_call
     ({add_log_entry, atom(), log_entry()}, gen_from(), #state{}) ->
-  {noreply, #state{}} | %% if still recovering
-  {reply, {error, index_already_written}, #state{}} | %% if index is already written
-  {reply, ok, #state{}}; %% entry is persisted
-    ({read_log_entries, any(), integer(), integer(), fun((log_entry(), Acc) -> Acc), Acc}, gen_from(), #state{}) ->
-  {noreply, #state{}} | %% if still recovering or index for given node behind
-  {reply, {ok, Acc}, #state{}}. %% accumulated entries
+    {noreply, #state{}} | %% if still recovering
+    {reply, {error, index_already_written}, #state{}} | %% if index is already written
+    {reply, ok, #state{}}; %% entry is persisted
+
+    ({read_log_entries, any(), integer(), integer()}, gen_from(), #state{}) ->
+    {noreply, #state{}} | %% if still recovering or index for given node behind
+    {reply, {ok, [#log_read{}]}, #state{}}. %% accumulated entries
 
 handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == true ->
   logger:debug("[~p] Waiting for recovery: ~p", [State#state.log_name, From]),
@@ -214,16 +205,16 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
     data => Data
   }),
 
-  Index_Continuation = case disk_log:chunk(Log, start, infinity) of
-    {Continuation, _Terms} ->
-      Continuation;
-    {Continuation, _Terms, _BadBytes} ->
-      Continuation;
-    _ ->
-      start
-  end,
+ % Index_Continuation = case disk_log:chunk(Log, start, infinity) of
+  %  {Continuation, _Terms} ->
+ %     Continuation;
+ %   {Continuation, _Terms, _BadBytes} ->
+ %     Continuation;
+  %  _ ->
+  %    start
+  %end,
   %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
-  log_index_daemon:add_to_index(Key, ignore, Index_Continuation),
+  %log_index_daemon:add_to_index(Key, ignore, Index_Continuation),
 
   ok = disk_log:alog(Log, {NextIndex, Data}),
 
@@ -250,24 +241,18 @@ handle_call(_Request, From, State)
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({read_log_entries,Continuation, F, Acc}, _From, State) ->
+handle_call({read_log_entries,Key, Continuation}, _From, State) ->
   LogName = State#state.log_name,
   LogServer = State#state.sync_server,
   Waiting = State#state.waiting_for_reply,
-  %% simple implementation, read ALL terms, then filter
-  %% can be improved performance wise, stop at last index
+
+
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
   %% TODO this will most likely cause a timeout to the gen_server caller, what to do?
-  %Terms = read_all(Log,[],Continuation),
   Terms = read_continuations(Log, [], Continuation),
 
-  % filter index
-  %FilterByIndex = fun(#log_read{log_entry = {Index, _},continuation = _}) -> Index >= FirstIndex andalso ((LastIndex == all) or (Index =< LastIndex)) end,
- % FilteredTerms = lists:filter(FilterByIndex, Terms),
-  % apply given aggregator function
-  ReplyAcc = lists:foldl(F, Acc, Terms),
   reply_retry_to_waiting(Waiting),
-  {reply, {ok, ReplyAcc}, State#state{waiting_for_reply = []}}.
+  {reply, {ok, Terms}, State#state{waiting_for_reply = []}}.
 
 
 handle_info(Msg, State) ->
