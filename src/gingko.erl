@@ -41,7 +41,14 @@
 
 %% @doc Start the logging server.
 -spec start(term(), term()) -> {ok, pid()} | ignore | {error, term()}.
-start(_Type, _Args) -> gingko_sup:start_link().
+start(_Type, _Args) -> case gingko_sup:start_link() of
+                         {ok, Pid} ->
+                           ok = riak_core:register([{vnode_module, gingko_vnode}]),
+                           ok = riak_core_node_watcher:service_up(gingko_service, self()),
+                           {ok, Pid};
+                         {error, Reason} ->
+                           {error, Reason}
+                       end.
 
 %TODO -spec
 stop(_State) ->
@@ -74,12 +81,10 @@ get_version(Key, Type) ->
 get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
   io:format("."),
   logger:debug(#{function => "GET_VERSION", key => Key, type => Type, min_snapshot_timestamp => MinimumSnapshotTime, max_snapshot_timestamp => MaximumSnapshotTime}),
-
   %% Ask the cache for the object.
   %% If tha cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
-
   {ok, {Key, Type, Value, Timestamp}} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
   logger:debug(#{step => "materialize", materialized => {Key, Type, Value, Timestamp}}),
   {ok, {Key, Type, Value}}.

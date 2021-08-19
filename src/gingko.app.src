@@ -4,7 +4,8 @@
   {registered, [gingko]},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    riak_core
    ]},
   {licenses, ["Apache 2.0"]},
   {mod,{gingko,[]}}

@@ -204,18 +204,7 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
     index => NextIndex,
     data => Data
   }),
-
- % Index_Continuation = case disk_log:chunk(Log, start, infinity) of
-  %  {Continuation, _Terms} ->
- %     Continuation;
- %   {Continuation, _Terms, _BadBytes} ->
- %     Continuation;
-  %  _ ->
-  %    start
-  %end,
-  %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
-  %log_index_daemon:add_to_index(Key, ignore, Index_Continuation),
-
+  
   ok = disk_log:alog(Log, {NextIndex, Data}),
 
   % wait for sync reply

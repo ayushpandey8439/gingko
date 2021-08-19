@@ -24,5 +24,12 @@ init(_Args) ->
     {?LOG_INDEX_DAEMON,start_link,[gingko_log_index]},
     permanent,5000,worker,[?LOG_INDEX_DAEMON]},
 
+  GingkoVnode_master = {gingko_vnode_master,
+    {riak_core_vnode_master, start_link, [gingko_vnode]},
+    permanent,
+    5000,
+    worker,
+    [riak_core_vnode_master]},
+
   SupFlags = #{strategy => one_for_one, intensity => 1, period => 5},
-  {ok, {SupFlags, [Worker,CacheDaemon,CheckpointDaemon,LogIndexDaemon]}}.
+  {ok, {SupFlags, [GingkoVnode_master,Worker,CacheDaemon,CheckpointDaemon,LogIndexDaemon]}}.
