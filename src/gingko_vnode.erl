@@ -1,5 +1,5 @@
 -module(gingko_vnode).
-
+-include("gingko.hrl").
 -behaviour(riak_core_vnode).
 
 %% API
@@ -15,14 +15,19 @@ start_vnode(I) ->
     riak_core_vnode_master:get_vnode_pid(I, ?MODULE).
 
 init([Partition]) ->
+    logger:notice(#{
+        action => "Starting gingko API VNode",
+        registered_as => ?MODULE,
+        pid => self()
+    }),
     {ok, #state{partition = Partition}}.
 
 handle_command(ping, _Sender, State = #state{ partition = _Partition}) ->
     io:format("Received Ping. Responding"),
     {reply, {pong, node(), State#state.partition}, State};
-handle_command({get_version, Key,Type,MinimumSnapshotTime,MaximumSnapshotTime}, _Sender,State) ->
-    Result = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
-    {reply, Result, State};
+handle_command({get_version, Key,Type,MinimumSnapshotTime,MaximumSnapshotTime}, _Sender,State#state(Partition = partition)) ->
+    {ok, {Key, Type, Value, Timestamp}} = riak_core_vnode_master:sync_command(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
+    {reply, {Key, Type, Value}, State};
 handle_command(Message, _Sender, State) ->
     logger:warning("unhandled_command ~p", [Message]),
     {noreply, State}.

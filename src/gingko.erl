@@ -78,17 +78,8 @@ get_version(Key, Type) ->
 %% @param MaximumSnapshotTime if not 'undefined', then retrieves the latest object version which is not older than this timestamp
 -spec get_version(key(), type(), snapshot_time(),snapshot_time()) -> {ok, snapshot()}.
 get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
-  io:format("."),
   logger:debug(#{function => "GET_VERSION", key => Key, type => Type, min_snapshot_timestamp => MinimumSnapshotTime, max_snapshot_timestamp => MaximumSnapshotTime}),
-  %% Ask the cache for the object.
-  %% If tha cache has that object, it is returned.
-  %% If the cache does not have it, it is materialised from the log and stored in the cache.
-  %% All subsequent reads of the object will return from the cache without reading the whole log.
   send_to_one(Key, {get_version, Key,Type,MinimumSnapshotTime,MaximumSnapshotTime}).
-  %{ok, {Key, Type, Value, Timestamp}} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
-  %logger:debug(#{step => "materialize", materialized => {Key, Type, Value, Timestamp}}),
-  %{ok, {Key, Type, Value}}.
-
 
 %% @doc Applies an update for the given key for given transaction id with a calculated valid downstream operation.
 %% It is currently not checked if the downstream operation is valid for given type.
@@ -188,7 +179,7 @@ abort(Keys, TransactionId) ->
 %% @doc Sets a timestamp for when all operations below that timestamp are considered stable.
 %%
 %% Currently not implemented.
-%% @param SnapshotTime TODO
+%% @param SnapshotTime
 -spec set_stable(snapshot_time()) -> ok.
 set_stable(SnapshotTime) ->
   logger:warning(#{function => "SET_STABLE", timestamp => SnapshotTime, message => "not implemented"}),
