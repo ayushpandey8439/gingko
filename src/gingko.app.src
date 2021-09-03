@@ -1,12 +1,7 @@
-{application, gingko,
- [{description, "Persistent backend for CRDT objects"},
-  {vsn, "0.1.0"},
-  {registered, [gingko]},
-  {applications,
-   [kernel,
-    stdlib,
-    riak_core
-   ]},
-  {licenses, ["Apache 2.0"]},
-  {mod,{gingko,[]}}
- ]}.
+%% -*- erlang -*-
+{application, gingko, [
+    {description, "gingko with Riak Core integration"},
+    {vsn, "1.0.0"},
+    {applications, [ kernel, stdlib, riak_core ]},
+    {mod, {gingko_app, []}}
+]}.

@@ -23,10 +23,6 @@
 %% Stable snapshots are currently not implemented, thus set_stable is a NO-OP.
 -module(gingko).
 -include("gingko.hrl").
-
-%%----------- System Control -------------%%
--export([start/2,stop/1]).
-
 %%---------------- API -------------------%%
 -export([
   update/4,
@@ -36,27 +32,30 @@
   get_version/2,
   get_version/4,
   set_stable/1, %%TODO: Implement for the checkpoint store,
-  get_stats/0
+  get_stats/0,
+  ping/0
 ]).
-
-%% @doc Start the logging server.
--spec start(term(), term()) -> {ok, pid()} | ignore | {error, term()}.
-start(_Type, _Args) -> case gingko_sup:start_link() of
-                         {ok, Pid} ->
-                           ok = riak_core:register([{vnode_module, gingko_vnode}]),
-                           ok = riak_core_node_watcher:service_up(gingko_service, self()),
-                           {ok, Pid};
-                         {error, Reason} ->
-                           {error, Reason}
-                       end.
-
-%TODO -spec
-stop(_State) ->
-  ok.
 
 %%====================================================================
 %% API functions
 %%====================================================================
+
+-spec ping() -> {{request_id, term()}, {result, term()}}.
+ping() ->
+  % argument to chash_key has to be a two item tuple, since it comes from riak
+  % and the full key has a bucket, we use a contant in the bucket position
+  % and a timestamp as key so we hit different vnodes on each call
+  DocIdx = riak_core_util:chash_key({<<"ping">>, term_to_binary(os:timestamp())}),
+  % ask for 1 vnode index to send this request to, change N to get more
+  % vnodes, for example for replication
+  N = 1,
+  PrefList = riak_core_apl:get_primary_apl(DocIdx, N, gingko),
+  [{IndexNode, _Type}] = PrefList,
+  riak_core_vnode_master:sync_spawn_command(IndexNode, ping, gingko_vnode_master).
+
+
+
+
 
 %% @equiv get_version(Key, Type, undefined)
 -spec get_version(key(), type()) -> {ok, snapshot()}.
@@ -85,9 +84,10 @@ get_version(Key, Type, MinimumSnapshotTime, MaximumSnapshotTime) ->
   %% If tha cache has that object, it is returned.
   %% If the cache does not have it, it is materialised from the log and stored in the cache.
   %% All subsequent reads of the object will return from the cache without reading the whole log.
-  {ok, {Key, Type, Value, Timestamp}} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
-  logger:debug(#{step => "materialize", materialized => {Key, Type, Value, Timestamp}}),
-  {ok, {Key, Type, Value}}.
+  send_to_one(Key, {get_version, Key,Type,MinimumSnapshotTime,MaximumSnapshotTime}).
+  %{ok, {Key, Type, Value, Timestamp}} = cache_daemon:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
+  %logger:debug(#{step => "materialize", materialized => {Key, Type, Value, Timestamp}}),
+  %{ok, {Key, Type, Value}}.
 
 
 %% @doc Applies an update for the given key for given transaction id with a calculated valid downstream operation.
@@ -108,9 +108,9 @@ update(Key, Type, TransactionId, DownstreamOp) ->
   logger:debug(#{function => "UPDATE", key => Key, type => Type, transaction => TransactionId, op => DownstreamOp}),
 
   Entry = #log_operation{
-      tx_id = TransactionId,
-      op_type = update,
-      log_payload = #update_log_payload{key = Key, type = Type , op = DownstreamOp}},
+    tx_id = TransactionId,
+    op_type = update,
+    log_payload = #update_log_payload{key = Key, type = Type , op = DownstreamOp}},
 
   LogRecord = #log_record {
     version = ?LOG_RECORD_VERSION,
@@ -142,9 +142,9 @@ commit(Keys, TransactionId, CommitTime, SnapshotTime) ->
   logger:debug(#{function => "COMMIT", keys => Keys, transaction => TransactionId, commit_timestamp => CommitTime, snapshot_timestamp => SnapshotTime}),
 
   Entry = #log_operation{
-      tx_id = TransactionId,
-      op_type = commit,
-      log_payload = #commit_log_payload{commit_time = CommitTime, snapshot_time = SnapshotTime}},
+    tx_id = TransactionId,
+    op_type = commit,
+    log_payload = #commit_log_payload{commit_time = CommitTime, snapshot_time = SnapshotTime}},
 
   LogRecord = #log_record {
     version = ?LOG_RECORD_VERSION,
@@ -170,9 +170,9 @@ abort(Keys, TransactionId) ->
   logger:debug(#{function => "ABORT", keys => Keys, transaction => TransactionId}),
 
   Entry = #log_operation{
-      tx_id = TransactionId,
-      op_type = abort,
-      log_payload = #abort_log_payload{}},
+    tx_id = TransactionId,
+    op_type = abort,
+    log_payload = #abort_log_payload{}},
 
   LogRecord = #log_record {
     version = ?LOG_RECORD_VERSION,
@@ -197,3 +197,10 @@ set_stable(SnapshotTime) ->
 
 get_stats() ->
   gen_server:call(?CACHE_DAEMON, {get_event_stats}).
+
+
+send_to_one(Key, Cmd) ->
+  DocIdx = riak_core_util:chash_key({default_bucket, Key}),
+  PrefList = riak_core_apl:get_primary_apl(DocIdx, 1, gingko),
+  [{IndexNode, _Type}] = PrefList,
+  riak_core_vnode_master:sync_spawn_command(IndexNode, Cmd, gingko_vnode_master).
