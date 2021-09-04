@@ -24,12 +24,12 @@
 
 -spec get_from_cache(atom(), antidote_crdt:typ(), snapshot_time(), snapshot_time()) -> {ok, snapshot()}.
 get_from_cache(ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime)->
-  send_to_one(ObjectKey, {{get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}}).
+  send_to_one(ObjectKey, {get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}).
   %gen_server:call(?CACHE_DAEMON, {get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}, infinity).
 
 -spec put_in_cache({term(), antidote_crdt:typ(), snapshot_time()}) -> boolean().
 put_in_cache({ObjectKey, Type, SnapshotTimestamp})->
-  send_to_one(ObjectKey, {{put_in_cache, ObjectKey, Type, SnapshotTimestamp}}).
+  send_to_one(ObjectKey, {put_in_cache, ObjectKey, Type, SnapshotTimestamp}).
   %gen_server:call(?CACHE_DAEMON, {put_in_cache, Data}).
 
 
@@ -66,6 +66,46 @@ init([Partition]) ->
 handle_command(ping, _Sender, State = #cache_mgr_state{ partition = _Partition}) ->
   io:format("Received Ping. Responding"),
   {reply, {pong, node(), State#cache_mgr_state.partition}, State};
+handle_command({get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}, _Sender, State = #cache_mgr_state{partition= Partition, current_size = Size, cache_events = Events}) ->
+  {ReplyMaterializedObject, ReplySnapshotTime, NewEvents} =
+    case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
+      {error, not_exist} ->
+        EventsUpdated = dict:update_counter(misses, 1, Events),
+        logger:debug("Cache Miss: Going to the log to materialize."),
+        % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
+        {MaterializationSnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+        {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, MaterializedObject}, Size),
+        {MaterializedObject, MaterializationSnapshotTime,EventsUpdated};
+      {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
+        SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
+        SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime, CacheSnapshotTime),
+        {MaterializationTimestamp, UpdatedMaterialization, NewEventsInternal} = if
+          SnapshotTimeHigherMaxTime == true ->
+            EventsUpdated = dict:update_counter(comp_rebuilds, 1, Events),
+            logger:debug("Cache hit, Object in the cache has a timestamp higher than the required minimum. ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
+            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+            {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
+            {Timestamp, Materialization, EventsUpdated};
+          SnapshotTimeLowerMinTime == true ->
+            EventsUpdated = dict:update_counter(stales, 1, Events),
+            logger:debug("Cache hit, Object in the cache is stale."),
+            {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime),
+            % Insert the element in the cache for later reads.
+            {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
+            {Timestamp, Materialization, EventsUpdated};
+          true ->
+            EventsUpdated = dict:update_counter(in_bounds, 1, Events),
+            logger:debug("Cache hit, Object is within bounds ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
+            UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,
+            {CacheSnapshotTime, MaterializedObject, EventsUpdated}
+                                                                                end,
+        {UpdatedMaterialization, MaterializationTimestamp, NewEventsInternal}
+    end,
+  {reply, {ok, {ObjectKey, Type, ReplyMaterializedObject, ReplySnapshotTime}}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers, cache_events = NewEvents}};
+handle_command({put_in_cache, Data}, _Sender, State = #cache_mgr_state{current_size = Size}) ->
+  Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data, Size),
+  {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};
+
 handle_command(Message, _Sender, State) ->
   logger:warning("unhandled_command ~p", [Message]),
   {noreply, State}.
@@ -131,4 +171,41 @@ send_to_one(Key, Cmd) ->
   DocIdx = riak_core_util:chash_key({default_bucket, Key}),
   PrefList = riak_core_apl:get_primary_apl(DocIdx, 1, gingko),
   [{IndexNode, _Type}] = PrefList,
-  riak_core_vnode_master:sync_spawn_command(IndexNode, Cmd, gingko_vnode_master).
+  riak_core_vnode_master:sync_spawn_command(IndexNode, Cmd, cache_daemon_vnode_master).
+
+
+
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+cacheLookup([],_Key) ->
+  {error, not_exist};
+cacheLookup([{CacheStore,_Size}| CacheIdentifiers], Key) ->
+  case ets:lookup(CacheStore, Key) of
+    [] -> cacheLookup(CacheIdentifiers, Key);
+    [Object] -> {ok, Object}
+  end.
+
+cacheInsert(CacheIdentifiers, Data, Size) ->
+  {CacheStore, MaxSize} = lists:nth(1, CacheIdentifiers),
+  ets:insert(CacheStore, Data),
+  case Size >= MaxSize of
+    false -> {CacheIdentifiers, Size+1};
+    true ->
+      case ets:info(CacheStore, size) >= MaxSize of
+        false -> {CacheIdentifiers, Size+1};
+        true -> {garbageCollect(CacheIdentifiers), 0}
+      end
+  end.
+
+-spec garbageCollect(list()) -> list().
+garbageCollect(CacheIdentifiers) ->
+  logger:debug("Initiating Garbage Collection"),
+  {LastSegment, Size} = lists:last(CacheIdentifiers),
+  ets:delete(LastSegment),
+  ets:new(LastSegment, [named_table, ?TABLE_CONCURRENCY]),
+  SubList = lists:droplast(CacheIdentifiers),
+  UpdatedCacheIdentifiers = lists:append([{LastSegment,Size}],SubList),
+  logger:debug("New CacheIdentifier List is ~p ~n",[UpdatedCacheIdentifiers]),
+  UpdatedCacheIdentifiers.

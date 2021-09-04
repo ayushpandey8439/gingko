@@ -63,4 +63,18 @@ init(_Args) ->
       worker,
       [riak_core_vnode_master]},
 
-    {ok, {{one_for_all, 5, 10}, [Gingko_VNode_master, Cache_Daemon_VNode_master]}}.
+
+  Worker = {?LOGGING_MASTER,
+    {?LOGGING_MASTER, start_link, ["main_log", none]},
+    permanent, 5000, worker, [?LOGGING_MASTER]},
+
+  CheckpointDaemon = {checkpoint_daemon,
+    {checkpoint_daemon,start_link,[gingko_checkpoint_store]},
+    permanent,5000,worker,[checkpoint_daemon_server]},
+
+  LogIndexDaemon = {?LOG_INDEX_DAEMON,
+    {?LOG_INDEX_DAEMON,start_link,[gingko_log_index]},
+    permanent,5000,worker,[?LOG_INDEX_DAEMON]},
+
+
+    {ok, {{one_for_all, 5, 10}, [Gingko_VNode_master, Cache_Daemon_VNode_master, LogIndexDaemon, Worker]}}.

@@ -25,8 +25,8 @@ init([Partition]) ->
 handle_command(ping, _Sender, State = #state{ partition = _Partition}) ->
     io:format("Received Ping. Responding"),
     {reply, {pong, node(), State#state.partition}, State};
-handle_command({get_version, Key,Type,MinimumSnapshotTime,MaximumSnapshotTime}, _Sender,State#state(Partition = partition)) ->
-    {ok, {Key, Type, Value, Timestamp}} = riak_core_vnode_master:sync_command(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
+handle_command({get_version, Key,Type,MinimumSnapshotTime,MaximumSnapshotTime}, _Sender,State) ->
+    {ok, {Key, Type, Value, Timestamp}} = cache_daemon_vnode:get_from_cache(Key,Type,MinimumSnapshotTime,MaximumSnapshotTime),
     {reply, {Key, Type, Value}, State};
 handle_command(Message, _Sender, State) ->
     logger:warning("unhandled_command ~p", [Message]),

@@ -33,7 +33,8 @@
   get_version/4,
   set_stable/1, %%TODO: Implement for the checkpoint store,
   get_stats/0,
-  ping/0
+  ping/0,
+  ring_status/0
 ]).
 
 %%====================================================================
@@ -195,3 +196,8 @@ send_to_one(Key, Cmd) ->
   PrefList = riak_core_apl:get_primary_apl(DocIdx, 1, gingko),
   [{IndexNode, _Type}] = PrefList,
   riak_core_vnode_master:sync_spawn_command(IndexNode, Cmd, gingko_vnode_master).
+
+
+ring_status() ->
+  {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+  riak_core_ring:pretty_print(Ring, [legend]).
