@@ -34,10 +34,10 @@
   maps:map(key(), [#clocksi_payload{}]),
   [#log_index{}]
 }.
-filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOpsDict, Continuations) ->
-  {Ops, CommittedOpsDict, Continuations};
+filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
+  {Ops, CommittedOps, Continuations};
 
-filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,Continuations) ->
+filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations) ->
   logger:debug("Log record ~p", [LogRecord]),
 
   #log_record{log_operation = LogOperation} = check_log_record_version(LogRecord),
@@ -45,11 +45,11 @@ filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Con
   #log_operation{tx_id = TxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
   case OpType of
     update ->
-      handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations);
+      handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations);
     commit ->
-      handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict,Continuations, Continuation);
+      handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations, Continuation);
     _ ->
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations)
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations)
   end.
 
 
@@ -71,16 +71,16 @@ filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Con
   maps:map(key(), [#clocksi_payload{}]),     % accumulated committed operations for key and snapshot filter
   [#log_index{}]
 }.
-handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations) ->
+handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
   #update_log_payload{key = PayloadKey} = OpPayload,
-  case (Key == PayloadKey) or (Key == ignore) of
+  case (Key == PayloadKey) of
     true ->
       % key matches: append to all operations accumulator
       TxnOps = maps:get(TxId, Ops, []),
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:put(TxId, lists:append(TxnOps,[OpPayload]), Ops), CommittedOpsDict, Continuations);
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:put(TxId, lists:append(TxnOps,[OpPayload]), Ops), CommittedOps, Continuations);
     false ->
       % key does not match: skip
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations)
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations)
   end.
 
 
@@ -110,29 +110,8 @@ handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
     error ->
       filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations);
     OpsList ->
-      NewCommittedOpsDict =
-        lists:foldl(fun(#update_log_payload{key = KeyInternal, type = Type, op = Op}, Acc) ->
-          case (clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime) andalso
-            clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)) of
-            true ->
-              CommittedDownstreamOp =
-                #clocksi_payload{
-                  key = KeyInternal,
-                  type = Type,
-                  op_param = Op,
-                  snapshot_time = SnapshotTime,
-                  commit_time = {DcId, TxCommitTime},
-                  txid = TxId},
-              CommittedOps = maps:get(KeyInternal, Acc,[]),
-              maps:put(KeyInternal, lists:append(CommittedOps,[CommittedDownstreamOp]), Acc);
-              %dict:append(KeyInternal, CommittedDownstreamOp, Acc);
-            false ->
-              Acc
-          end end, CommittedOpsDict, OpsList),
-      %% TODO committed ops are not found in the ops accumulator?
-
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:remove(TxId, Ops),
-        NewCommittedOpsDict, NewContinuations)
+      NewCommittedOpsDict = getCommittedOps(DcId, TxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOpsDict),
+      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:remove(TxId, Ops), NewCommittedOpsDict, NewContinuations)
   end.
 
 
@@ -146,3 +125,23 @@ check_log_record_version(LogRecord) ->
   ?LOG_RECORD_VERSION = LogRecord#log_record.version,
   LogRecord.
 
+getCommittedOps(DcId, TxId,TxCommitTime,[],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps) ->
+  CommittedOps;
+getCommittedOps(DcId, TxId, TxCommitTime, [#update_log_payload{key = KeyInternal, type = Type, op = Op}|OpsList],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps)->
+  NewCommittedOps = case (clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime) andalso
+    clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)) of
+      true ->
+        CommittedDownstreamOp =
+          #clocksi_payload{
+          key = KeyInternal,
+          type = Type,
+          op_param = Op,
+          snapshot_time = SnapshotTime,
+          commit_time = {DcId, TxCommitTime},
+          txid = TxId},
+        Ops = maps:get(KeyInternal, CommittedOps,[]),
+        maps:put(KeyInternal, lists:append(Ops,[CommittedDownstreamOp]), CommittedOps);
+      false ->
+        CommittedOps
+  end,
+  getCommittedOps(DcId, TxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, NewCommittedOps).
