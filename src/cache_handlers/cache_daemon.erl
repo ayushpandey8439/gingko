@@ -67,8 +67,9 @@ handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size =
   {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};
 
 handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime}, _From, State = #cache_mgr_state{current_size = Size, cache_events = Events}) ->
-  {ReplyMaterializedObject, ReplySnapshotTime, NewEvents} =
+  Reply =
     case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
+<<<<<<< HEAD:src/cache_handlers/cache_daemon.erl
       {error, not_exist} ->
         EventsUpdated = dict:update_counter(misses, 1, Events),
         logger:debug("Cache Miss: Going to the log to materialize."),
@@ -102,6 +103,41 @@ handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapsho
         {UpdatedMaterialization, MaterializationTimestamp, NewEventsInternal}
     end,
   {reply, {ok, {ObjectKey, Type, ReplyMaterializedObject, ReplySnapshotTime}}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers, cache_events = NewEvents}};
+=======
+    {error, not_exist} ->
+      EventsUpdated = dict:update_counter(misses, 1, Events),
+      logger:debug("Cache Miss: Going to the log to materialize."),
+      % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
+      {SnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, SnapshotTime, MaterializedObject}, Size),
+      {ObjectKey, Type, MaterializedObject, SnapshotTime};
+    {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
+      SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
+      SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime, CacheSnapshotTime),
+      {MaterializationTimestamp, UpdatedMaterialization} = if
+         SnapshotTimeHigherMaxTime == true ->
+           EventsUpdated = dict:update_counter(comp_rebuilds, 1, Events),
+           logger:debug("Cache hit, Object in the cache has a timestamp higher than the required minimum. ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
+           {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
+           {Timestamp, Materialization};
+         SnapshotTimeLowerMinTime == true ->
+           EventsUpdated = dict:update_counter(stales, 1, Events),
+           logger:debug("Cache hit, Object in the cache is stale."),
+           {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime),
+           % Insert the element in the cache for later reads.
+           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
+           {Timestamp, Materialization};
+         true ->
+           EventsUpdated = dict:update_counter(in_bounds, 1, Events),
+           logger:debug("Cache hit, Object is within bounds ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
+           UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,
+           {CacheSnapshotTime, MaterializedObject}
+      end,
+      {ObjectKey, Type, UpdatedMaterialization, MaterializationTimestamp}
+  end,
+  {reply, {ok, Reply}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers, cache_events = EventsUpdated}};
+>>>>>>> parent of 4bc5f83... Fix nop payload versioning:src/cache_daemon.erl
 
 handle_call({invalidate_objects, Keys}, _From, State = #cache_mgr_state{}) ->
   {CacheStore, _Size} = lists:nth(1, State#cache_mgr_state.cacheidentifiers),
