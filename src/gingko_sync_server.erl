@@ -14,16 +14,16 @@
 }).
 
 %% API
--export([start_link/1]).
+-export([start_link/2]).
 -export([log_dir_base/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2, code_change/3]).
 
 
 %% @doc Starts the log sync timing server for given node
--spec start_link(node()) -> {ok, pid()}.
-start_link(LogName) ->
-  gen_server:start_link({local, ?MODULE}, ?MODULE, {LogName}, []).
+-spec start_link(node(), integer()) -> {ok, pid()}.
+start_link(LogName, Partition) ->
+  gen_server:start_link({global, ?MODULE_STRING++integer_to_list(Partition)}, ?MODULE, {LogName++integer_to_list(Partition)}, []).
 
 
 %% @doc Initializes the internal server state

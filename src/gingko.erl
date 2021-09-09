@@ -35,11 +35,11 @@
   set_stable/1, %%TODO: Implement for the checkpoint store,
   get_stats/0
 ]).
--export([start/2]).
+-export([start/1]).
 
 %% @doc Start the logging server.
--spec start(term(), term()) -> {ok, pid()} | ignore | {error, term()}.
-start(_Type, _Args) -> gingko_sup:start_link().
+-spec start(integer()) -> {ok, pid()} | ignore | {error, term()}.
+start(Partition) -> gingko_sup:start_link(Partition).
 
 
 %%====================================================================

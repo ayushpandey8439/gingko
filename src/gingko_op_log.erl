@@ -11,7 +11,7 @@
 -type log_entry() :: #log_record{}.
 -type gen_from() :: any().
 
--export([start_link/2]).
+-export([start_link/3]).
 -export([append/3, read_log_entries/3]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
@@ -83,17 +83,17 @@ read_log_entries(Log,Key, Continuation) ->
 
 
 %% @doc Starts the op log server for given server name and recovery receiver process
--spec start_link(term(), pid() | none) -> {ok, pid()}.
-start_link(LogName, RecoveryReceiver) ->
-  gen_server:start_link({local, ?MODULE}, ?MODULE, {LogName, RecoveryReceiver}, []).
+-spec start_link(term(), pid() | none, integer()) -> {ok, pid()}.
+start_link(LogName, RecoveryReceiver, Partition) ->
+  gen_server:start_link({global, ?MODULE_STRING++integer_to_list(Partition)}, ?MODULE, {LogName, RecoveryReceiver, Partition}, []).
 
 
 %% @doc Initializes the internal server state
 -spec init({node(), pid()}) -> {ok, #state{}}.
-init({LogName, RecoveryReceiver}) ->
+init({LogName, RecoveryReceiver, Partition}) ->
   logger:notice(#{
     action => "Starting op log server",
-    registered_as => ?MODULE,
+    registered_as => ?MODULE_STRING++integer_to_list(Partition),
     name => LogName,
     receiver => RecoveryReceiver
   }),
@@ -108,7 +108,7 @@ init({LogName, RecoveryReceiver}) ->
   end,
 
 
-  {ok, SyncServer} = gingko_sync_server:start_link(LogName),
+  {ok, SyncServer} = gingko_sync_server:start_link(LogName, Partition),
 
   gen_server:cast(self(), start_recovery),
   {ok, #state{

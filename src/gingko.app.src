@@ -3,9 +3,7 @@
   {vsn, "0.1.0"},
   {registered, [gingko]},
   {applications,
-   [kernel,
-    stdlib
-   ]},
+   []},
   {licenses, ["Apache 2.0"]},
   {mod,{gingko,[]}}
  ]}.
