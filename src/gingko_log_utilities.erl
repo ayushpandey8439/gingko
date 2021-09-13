@@ -1,11 +1,11 @@
 %% @doc Utility functions for filtering log entries.
--module(log_utilities).
+-module(gingko_log_utilities).
 
 -include("gingko.hrl").
 
 %% API
 -export([
-  filter_terms_for_key/7
+  filter_terms_for_key/8
 ]).
 
 
@@ -22,6 +22,7 @@
 %% @param CommittedOpsDict dict accumulator for committed operations
 %% @returns a {dict, dict} tuple with accumulated operations and committed operations for key and snapshot filter
 -spec filter_terms_for_key(
+    txid(),
     [#log_read{}],
     key(),
     snapshot_time(),
@@ -34,22 +35,21 @@
   maps:map(key(), [#clocksi_payload{}]),
   [#log_index{}]
 }.
-filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
+filter_terms_for_key(_TxId, [], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
   {Ops, CommittedOps, Continuations};
 
-filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations) ->
+filter_terms_for_key(TxId, [#log_read{log_entry = {LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations) ->
   logger:debug("Log record ~p", [LogRecord]),
-
   #log_record{log_operation = LogOperation} = check_log_record_version(LogRecord),
 
-  #log_operation{tx_id = TxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
+  #log_operation{tx_id = LogTxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
   case OpType of
     update ->
-      handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations);
+      handle_update(TxId, LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations);
     commit ->
-      handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations, Continuation);
+      handle_commit(TxId, LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations, Continuation);
     _ ->
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations)
+      filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations)
   end.
 
 
@@ -57,6 +57,7 @@ filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Con
 %%      Filters according to key and snapshot times
 %%      If filter matches, appends payload to operations accumulator
 -spec handle_update(
+    txid(),
     txid(),                                   % used to identify tx id for the 'handle_commit' function
     #update_log_payload{},                    % update payload read from the log
     [#log_read{}],                            % rest of the log
@@ -71,16 +72,16 @@ filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Con
   maps:map(key(), [#clocksi_payload{}]),     % accumulated committed operations for key and snapshot filter
   [#log_index{}]
 }.
-handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
+handle_update(TxId, LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
   #update_log_payload{key = PayloadKey} = OpPayload,
   case (Key == PayloadKey) of
     true ->
       % key matches: append to all operations accumulator
-      TxnOps = maps:get(TxId, Ops, []),
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:put(TxId, lists:append(TxnOps,[OpPayload]), Ops), CommittedOps, Continuations);
+      TxnOps = maps:get(LogTxId, Ops, []),
+      filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:put(LogTxId, lists:append(TxnOps,[OpPayload]), Ops), CommittedOps, Continuations);
     false ->
       % key does not match: skip
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations)
+      filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps, Continuations)
   end.
 
 
@@ -88,6 +89,7 @@ handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
 %%      Filters according to key and snapshot times
 %%      If filter matches, appends payload to operations accumulator
 -spec handle_commit(
+    txid(),
     txid(),                                   % searches for operations belonging to this tx id
     #commit_log_payload{},                    % update payload read from the log
     [#log_read{}],                            % rest of the log
@@ -103,15 +105,15 @@ handle_update(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTi
   maps:map(key(), [#clocksi_payload{}]),     % accumulated committed operations for key and snapshot filter
   [#log_index{}]
 }.
-handle_commit(TxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations, Continuation) ->
+handle_commit(TxId, LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations, Continuation) ->
   #commit_log_payload{commit_time = {DcId, TxCommitTime}, snapshot_time = SnapshotTime} = OpPayload,
   NewContinuations = Continuations ++ [#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}],
-  case maps:get(TxId, Ops, error) of
+  case maps:get(LogTxId, Ops, error) of
     error ->
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations);
+      filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations);
     OpsList ->
-      NewCommittedOpsDict = getCommittedOps(DcId, TxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOpsDict),
-      filter_terms_for_key(OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:remove(TxId, Ops), NewCommittedOpsDict, NewContinuations)
+      NewCommittedOpsDict = getCommittedOps(TxId, DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOpsDict),
+      filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:remove(LogTxId, Ops), NewCommittedOpsDict, NewContinuations)
   end.
 
 
@@ -125,9 +127,9 @@ check_log_record_version(LogRecord) ->
   ?LOG_RECORD_VERSION = LogRecord#log_record.version,
   LogRecord.
 
-getCommittedOps(DcId, TxId,TxCommitTime,[],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps) ->
+getCommittedOps(TxId, DcId, LogTxId,TxCommitTime,[],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps) ->
   CommittedOps;
-getCommittedOps(DcId, TxId, TxCommitTime, [#update_log_payload{key = KeyInternal, type = Type, op = Op}|OpsList],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps)->
+getCommittedOps(TxId, DcId, LogTxId, TxCommitTime, [#update_log_payload{key = KeyInternal, type = Type, op = Op}|OpsList],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps)->
   NewCommittedOps = case (clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime) andalso
     clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)) of
       true ->
@@ -138,10 +140,10 @@ getCommittedOps(DcId, TxId, TxCommitTime, [#update_log_payload{key = KeyInternal
           op_param = Op,
           snapshot_time = SnapshotTime,
           commit_time = {DcId, TxCommitTime},
-          txid = TxId},
+          txid = LogTxId},
         Ops = maps:get(KeyInternal, CommittedOps,[]),
         maps:put(KeyInternal, lists:append(Ops,[CommittedDownstreamOp]), CommittedOps);
       false ->
         CommittedOps
   end,
-  getCommittedOps(DcId, TxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, NewCommittedOps).
+  getCommittedOps(TxId, DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, NewCommittedOps).

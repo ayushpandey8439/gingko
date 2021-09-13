@@ -10,7 +10,7 @@
   logs_to_close,
 
   % local log name
-  log_name :: atom()
+  log_file :: atom()
 }).
 
 %% API
@@ -22,26 +22,26 @@
 
 %% @doc Starts the log sync timing server for given node
 -spec start_link(node(), integer()) -> {ok, pid()}.
-start_link(LogName, Partition) ->
-  gen_server:start_link({global, ?MODULE_STRING++integer_to_list(Partition)}, ?MODULE, {LogName++integer_to_list(Partition)}, []).
+start_link(LogFile, Partition) ->
+  gen_server:start_link({global, ?MODULE_STRING++integer_to_list(Partition)}, ?MODULE, {LogFile}, []).
 
 
 %% @doc Initializes the internal server state
-init({LogName}) ->
+init({LogFile}) ->
   logger:notice(#{
     action => "Starting log sync server",
     registered_as => ?MODULE,
-    name => LogName
+    name => LogFile
   }),
 
-  reset_if_flag_set(LogName),
-  {ok, #state{ logs_to_close = sets:new(), log_name = LogName }}.
+  reset_if_flag_set(LogFile),
+  {ok, #state{ logs_to_close = sets:new(), log_file = LogFile }}.
 
 
 terminate(_Reason, State) ->
   logger:debug(#{
     action => "Shutdown log sync server",
-    name => State#state.log_name
+    name => State#state.log_file
   }),
 
   % close all references to open logs
@@ -51,13 +51,13 @@ terminate(_Reason, State) ->
 
 
 %% @doc opens the log given by the server name (second argument) and the target node (third argument)
-handle_call({get_log, LogName}, _From, State) ->
+handle_call({get_log, LogFile}, _From, State) ->
   logger:debug(#{
     action => "Open log",
-    log => LogName
+    log => LogFile
   }),
 
-  {ok, Log} = open_log(LogName),
+  {ok, Log} = open_log(LogFile),
   {reply, {ok, Log}, State}.
 
 
@@ -67,7 +67,7 @@ handle_cast({sync_log, LogName, ReplyTo}, State) ->
 
   logger:debug(#{
     action => "Sync log to disk",
-    log => State#state.log_name
+    log => State#state.log_file
   }),
   disk_log:sync(Log),
 
@@ -76,7 +76,7 @@ handle_cast({sync_log, LogName, ReplyTo}, State) ->
 
 
 handle_info(Msg, State) ->
-  logger:warning(#{ warning => "Unexpected Message", log => State#state.log_name, message => Msg }),
+  logger:warning(#{ warning => "Unexpected Message", log => State#state.log_file, message => Msg }),
   {noreply, State}.
 
 
@@ -90,11 +90,11 @@ code_change(_OldVsn, _State, _Extra) ->
 
 %% @doc ensures directory where the log is expected and opens the log file.
 %%      Recovers if required, logging found terms and bad bytes
-open_log(LogName) ->
-  logger:debug("Trying to open log ~p",[LogName]),
-  filelib:ensure_dir(log_dir_base(LogName)),
+open_log(LogFileName) ->
+  logger:debug("Trying to open log ~p",[LogFileName]),
+  filelib:ensure_dir(log_dir_base(LogFileName)),
 
-  LogFile = log_dir_base(LogName) ++ "OP_LOG",
+  LogFile = log_dir_base(LogFileName) ++ "OP_LOG",
 
   LogOptions = [{name, LogFile}, {file, LogFile}],
   case disk_log:open(LogOptions) of

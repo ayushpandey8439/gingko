@@ -21,4 +21,4 @@ init([Partition]) ->
     permanent,5000,worker,[?LOG_INDEX_DAEMON]},
 
   SupFlags = #{strategy => one_for_all, intensity => 1, period => 5},
-  {ok, {SupFlags, [Worker]}}.
+  {ok, {SupFlags, [Worker, CacheDaemon,LogIndexDaemon]}}.

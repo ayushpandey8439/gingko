@@ -8,11 +8,11 @@
 -include("gingko.hrl").
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
 
--export([get_continuation/2, add_to_index/3]).
+-export([get_continuation/3, add_to_index/4]).
 
 -define(SERVER, ?MODULE).
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
@@ -22,27 +22,28 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-get_continuation(Key, Timestamp) ->
-  gen_server:call(?LOG_INDEX_DAEMON, {get_continuation, {Key, Timestamp}}).
+get_continuation(Key, Timestamp, Partition) ->
+  gen_server:call(list_to_atom(atom_to_list(?LOG_INDEX_DAEMON)++integer_to_list(Partition)), {get_continuation, {Key, Timestamp}}).
 
-add_to_index(Key, Timestamp, Continuation) ->
-  gen_server:call(?LOG_INDEX_DAEMON, {index, {Key, Timestamp}, Continuation}).
+add_to_index(Key, Timestamp, Continuation, Partition) ->
+  gen_server:call(list_to_atom(atom_to_list(?LOG_INDEX_DAEMON)++integer_to_list(Partition)), {index, {Key, Timestamp}, Continuation}).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
 %%%===================================================================
 
-start_link(IndexIdentier) ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, IndexIdentier, []).
+start_link(IndexIdentier, Partition) ->
+  gen_server:start_link({local, list_to_atom(atom_to_list(?LOG_INDEX_DAEMON)++integer_to_list(Partition))}, ?MODULE, {IndexIdentier, Partition}, []).
 
-init(IndexIdentifier) ->
+init({IndexIdentifier, Partition}) ->
   logger:notice(#{
     action => "Starting log index daemon",
     registered_as => ?MODULE,
     pid => self()
   }),
-  ets:new(IndexIdentifier, [ordered_set, named_table, ?TABLE_CONCURRENCY]),
-  {ok, #log_index_daemon_state{indexidentifier = IndexIdentifier}}.
+  IndexIdentifierForPartition = list_to_atom(atom_to_list(IndexIdentifier)++integer_to_list(Partition)),
+  ets:new(IndexIdentifierForPartition, [ordered_set, named_table, ?TABLE_CONCURRENCY]),
+  {ok, #log_index_daemon_state{indexidentifier = IndexIdentifierForPartition}}.
 
 handle_call({get_continuation, {Key, Timestamp}}, _From, State = #log_index_daemon_state{}) ->
   Continuation =

@@ -9,8 +9,8 @@
 
 -behaviour(gen_server).
 
--export([start_link/3]).
--export([get_from_cache/4, put_in_cache/1, invalidate_cache_objects/1]).
+-export([start_link/4]).
+-export([get_from_cache/6, put_in_cache/1, invalidate_cache_objects/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
 
@@ -24,9 +24,9 @@
 %%% API
 %%%===================================================================
 
--spec get_from_cache(atom(), antidote_crdt:typ(), snapshot_time(), snapshot_time()) -> {ok, snapshot()}.
-get_from_cache(ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime)->
-  gen_server:call(?CACHE_DAEMON, {get_from_cache, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime}, infinity).
+-spec get_from_cache(term(),atom(), antidote_crdt:typ(), snapshot_time(), snapshot_time(), integer()) -> {ok, snapshot()}.
+get_from_cache(TxId, ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime, Partition)->
+  gen_server:call(list_to_atom(atom_to_list(?CACHE_DAEMON)++integer_to_list(Partition)), {get_from_cache, TxId,  ObjectKey, Type, MinimumSnapshotTime, MaximumSnapshotTime, Partition}, infinity).
 
 -spec put_in_cache({term(), antidote_crdt:typ(), snapshot_time()}) -> boolean().
 put_in_cache(Data)->
@@ -40,10 +40,10 @@ invalidate_cache_objects(Keys) ->
 %%% Spawning and gen_server implementation
 %%%===================================================================
 
-start_link(CacheIdentifier, Levels, SegmentSize) ->
-  gen_server:start_link({local, ?MODULE}, ?MODULE, {CacheIdentifier, Levels, SegmentSize}, []).
+start_link(CacheIdentifier, Levels, SegmentSize, Partition) ->
+  gen_server:start_link({local, list_to_atom(atom_to_list(?CACHE_DAEMON)++integer_to_list(Partition))}, ?MODULE, {CacheIdentifier, Levels, SegmentSize, Partition}, []).
 
-init({CacheIdentifier, Levels, SegmentSize}) ->
+init({CacheIdentifier, Levels, SegmentSize, Partition}) ->
   logger:notice(#{
     action => "Starting Cache Daemon with "++ integer_to_list(Levels) ++ " Segments of "++ integer_to_list(SegmentSize)++" objects each",
     registered_as => ?MODULE,
@@ -52,7 +52,7 @@ init({CacheIdentifier, Levels, SegmentSize}) ->
   CacheIdentifiers = [],
   FinalIdentifiers =
     lists:foldl(fun(Level, CacheIdentifierList) ->
-      CacheIdentifierID = list_to_atom(atom_to_list(CacheIdentifier)++integer_to_list(Level)),
+      CacheIdentifierID = list_to_atom(integer_to_list(Partition)++atom_to_list(CacheIdentifier)++integer_to_list(Level)),
       ets:new(CacheIdentifierID, [named_table, ?TABLE_CONCURRENCY]),
       lists:append(CacheIdentifierList, [{CacheIdentifierID, SegmentSize}] )
                 end,
@@ -66,14 +66,14 @@ handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size =
   Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data, Size),
   {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};
 
-handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime}, _From, State = #cache_mgr_state{current_size = Size, cache_events = Events}) ->
+handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime, Partition}, _From, State = #cache_mgr_state{current_size = Size, cache_events = Events}) ->
   {ReplyMaterializedObject, ReplySnapshotTime, NewEvents} =
     case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
     {error, not_exist} ->
       EventsUpdated = dict:update_counter(misses, 1, Events),
-      logger:debug("Cache Miss: Going to the log to materialize."),
+      logger:error("Cache Miss: Going to the log to materialize."),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
-      {MaterializationSnapshotTime, MaterializedObject} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+      {MaterializationSnapshotTime, MaterializedObject} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
       {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, MaterializedObject}, Size),
       {MaterializedObject, MaterializationSnapshotTime,EventsUpdated};
     {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
@@ -83,13 +83,13 @@ handle_call({get_from_cache, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapsho
          SnapshotTimeHigherMaxTime == true ->
            EventsUpdated = dict:update_counter(comp_rebuilds, 1, Events),
            logger:debug("Cache hit, Object in the cache has a timestamp higher than the required minimum. ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
-           {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, ignore, MaximumSnapshotTime),
+           {Timestamp, Materialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime, Partition),
            {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
            {Timestamp, Materialization, EventsUpdated};
          SnapshotTimeLowerMinTime == true ->
            EventsUpdated = dict:update_counter(stales, 1, Events),
            logger:debug("Cache hit, Object in the cache is stale."),
-           {Timestamp, Materialization} = fill_daemon:build(ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime),
+           {Timestamp, Materialization} = fill_daemon:build(TxId, ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime,Partition),
            % Insert the element in the cache for later reads.
            {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
            {Timestamp, Materialization, EventsUpdated};

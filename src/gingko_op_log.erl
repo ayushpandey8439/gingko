@@ -25,12 +25,12 @@
 %%
 %% @param Log the process returned by start_link.
 %% @param Entry the log record to append.
--spec append(node(),atom(), log_entry()) -> ok  | {error, Reason :: term()}.
-append(Log, Key, Entry) ->
-  case gen_server:call(Log, {add_log_entry,Key, Entry}) of
+-spec append(atom(), log_entry(), integer()) -> ok  | {error, Reason :: term()}.
+append(Key, Entry, Partition) ->
+  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry,Key, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
-    retry -> logger:debug("Retrying request"), append(Log, Key, Entry);
-    Reply -> Reply
+    retry -> logger:debug("Retrying request"), append(Key, Entry, Partition);
+    Reply -> logger:error("Received reply in the append call"), Reply
   end.
 %% @doc Read all log entries belonging to the given log and in a certain range with a custom accumulator.
 %%
@@ -42,10 +42,10 @@ append(Log, Key, Entry) ->
 %% @param LastIndex stop at this index, inclusive
 %% @param FoldFunction function that takes a single log entry and the current accumulator and returns the new accumulator
 %% @param Starting accumulator
--spec read_log_entries(node(), atom(), continuation() | start) -> {ok, [#log_read{}]}.
-read_log_entries(Log,Key, Continuation) ->
-  case gen_server:call(Log, {read_log_entries, Key, Continuation}) of
-    retry -> logger:debug("Retrying request"), read_log_entries(Log,Key, Continuation);
+-spec read_log_entries(atom(), continuation() | start, integer()) -> {ok, [#log_read{}]}.
+read_log_entries(Key, Continuation, Partition) ->
+  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {read_log_entries, Key, Continuation, Partition}) of
+    retry -> logger:debug("Retrying request"), read_log_entries(Key, Continuation, Partition);
     Reply -> Reply
   end.
 
@@ -85,16 +85,18 @@ read_log_entries(Log,Key, Continuation) ->
 %% @doc Starts the op log server for given server name and recovery receiver process
 -spec start_link(term(), pid() | none, integer()) -> {ok, pid()}.
 start_link(LogName, RecoveryReceiver, Partition) ->
-  gen_server:start_link({global, ?MODULE_STRING++integer_to_list(Partition)}, ?MODULE, {LogName, RecoveryReceiver, Partition}, []).
+  ProcessName = list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)),
+  LogFile =  list_to_atom(LogName++integer_to_list(Partition)),
+  gen_server:start_link({local, ProcessName}, ?MODULE, {LogFile, RecoveryReceiver, Partition}, []).
 
 
 %% @doc Initializes the internal server state
 -spec init({node(), pid()}) -> {ok, #state{}}.
-init({LogName, RecoveryReceiver, Partition}) ->
-  logger:notice(#{
+init({LogFile, RecoveryReceiver, Partition}) ->
+  logger:info(#{
     action => "Starting op log server",
-    registered_as => ?MODULE_STRING++integer_to_list(Partition),
-    name => LogName,
+    registered_as => list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)),
+    name => LogFile,
     receiver => RecoveryReceiver
   }),
 
@@ -108,11 +110,11 @@ init({LogName, RecoveryReceiver, Partition}) ->
   end,
 
 
-  {ok, SyncServer} = gingko_sync_server:start_link(LogName, Partition),
+  {ok, SyncServer} = gingko_sync_server:start_link(LogFile, Partition),
 
   gen_server:cast(self(), start_recovery),
   {ok, #state{
-    log_name = LogName,
+    log_name = LogFile,
     recovery_receiver = ActualReceiver,
     recovering = true,
     sync_server = SyncServer,
@@ -184,6 +186,7 @@ handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == 
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
 handle_call({add_log_entry, Key, Data}, From, State) ->
+
   logger:debug(#{
     action => "Append to log",
     name => State#state.log_name,
@@ -227,6 +230,7 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
 
   % index of another request may be up to date, send retry messages
   reply_retry_to_waiting(Waiting),
+  logger:error("Logging Complete"),
   {reply, ok, State#state{
     % increase index counter for node by one
     next_index = NextIndex + 1,
@@ -241,14 +245,13 @@ handle_call(_Request, From, State)
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({read_log_entries,Key, Continuation}, _From, State) ->
+handle_call({read_log_entries,Key, Continuation, Partition}, _From, State) ->
   LogName = State#state.log_name,
   LogServer = State#state.sync_server,
   Waiting = State#state.waiting_for_reply,
 
-
+  logger:error("Reading entry from ~p",[LogServer]),
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
-  %% TODO this will most likely cause a timeout to the gen_server caller, what to do?
   Terms = read_continuations(Log, [], Continuation),
 
   reply_retry_to_waiting(Waiting),
