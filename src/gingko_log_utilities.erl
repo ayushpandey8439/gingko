@@ -35,7 +35,8 @@
   maps:map(key(), [#clocksi_payload{}]),
   [#log_index{}]
 }.
-filter_terms_for_key(_TxId, [], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
+filter_terms_for_key(TxId, [], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
+  add_ops_from_current_txn(TxId, Ops, CommittedOps),
   {Ops, CommittedOps, Continuations};
 
 filter_terms_for_key(TxId, [#log_read{log_entry = {LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations) ->
@@ -147,3 +148,11 @@ getCommittedOps(TxId, DcId, LogTxId, TxCommitTime, [#update_log_payload{key = Ke
         CommittedOps
   end,
   getCommittedOps(TxId, DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, NewCommittedOps).
+
+
+
+add_ops_from_current_txn(TxId, Ops, CommittedOps) ->
+  case maps:get(TxId, Ops, error) of
+    error -> logger:error("No puncommitted Operations");
+    Operations ->  logger:error("Operations are : ~p",[Operations])
+  end.

@@ -71,7 +71,6 @@ handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumS
     case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
     {error, not_exist} ->
       EventsUpdated = dict:update_counter(misses, 1, Events),
-      logger:error("Cache Miss: Going to the log to materialize."),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
       {MaterializationSnapshotTime, MaterializedObject} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
       {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, MaterializedObject}, Size),

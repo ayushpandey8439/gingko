@@ -41,7 +41,7 @@ build(TxId, Key, Type, MinSnapshotTime, MaximumSnapshotTime, Partition) ->
 build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Partition) ->
   % Go to the index and get the minimum continuation we can start from.
   {ok, ContinuationObject} = log_index_daemon:get_continuation(Key, MinSnapshotTime, Partition),
-  logger:error("Continuation Object is ~p",[ContinuationObject]),
+  logger:debug("Continuation Object is ~p",[ContinuationObject]),
   % TODO: In the cached version when the cache is invalidated, we need to check if the continuiation we have needs to be deleted also
   % TODO: Or if there is another way we can check that the cached version can be rebiult without
   % With the list of log entries for the key, we also have the list of continuation objects.
@@ -56,7 +56,8 @@ build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Parti
   %AfterTimeFiltering = erlang:timestamp(),
   %TimeDiffFiltering = timer:now_diff(AfterTimeFiltering, BeforeTimeFiltering),
   %file:write(StatsFile, io_lib:fwrite("~p ;",[TimeDiffFiltering])),
-  logger:debug(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
+  logger:error(#{step => "filtered terms", ops => Ops, committed => CommittedOps}),
+
   PayloadForKey = case maps:get(Key, CommittedOps, error) of
     error -> [];
     Entry -> Entry

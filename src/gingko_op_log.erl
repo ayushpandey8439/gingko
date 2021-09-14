@@ -30,7 +30,7 @@ append(Key, Entry, Partition) ->
   case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry,Key, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
     retry -> logger:debug("Retrying request"), append(Key, Entry, Partition);
-    Reply -> logger:error("Received reply in the append call"), Reply
+    Reply ->  Reply
   end.
 %% @doc Read all log entries belonging to the given log and in a certain range with a custom accumulator.
 %%
@@ -185,15 +185,7 @@ handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == 
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({add_log_entry, Key, Data}, From, State) ->
-
-  logger:debug(#{
-    action => "Append to log",
-    name => State#state.log_name,
-    data => Data,
-    from => From
-  }),
-
+handle_call({add_log_entry, Key, LogEntry}, From, State) ->
 
   NextIndex = State#state.next_index,
   LogName = State#state.log_name,
@@ -205,7 +197,7 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
     action => "Logging",
     log => Log,
     index => NextIndex,
-    data => Data
+    data => LogEntry
   }),
 
  % Index_Continuation = case disk_log:chunk(Log, start, infinity) of
@@ -219,7 +211,7 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
   %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
   %log_index_daemon:add_to_index(Key, ignore, Index_Continuation),
 
-  ok = disk_log:alog(Log, {NextIndex, Data}),
+  ok = disk_log:alog(Log, {NextIndex, LogEntry}),
 
   % wait for sync reply
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
@@ -230,8 +222,7 @@ handle_call({add_log_entry, Key, Data}, From, State) ->
 
   % index of another request may be up to date, send retry messages
   reply_retry_to_waiting(Waiting),
-  logger:error("Logging Complete"),
-  {reply, ok, State#state{
+  {reply, {ok, NextIndex}, State#state{
     % increase index counter for node by one
     next_index = NextIndex + 1,
     % empty waiting queue
@@ -250,7 +241,6 @@ handle_call({read_log_entries,Key, Continuation, Partition}, _From, State) ->
   LogServer = State#state.sync_server,
   Waiting = State#state.waiting_for_reply,
 
-  logger:error("Reading entry from ~p",[LogServer]),
   {ok, Log} = gen_server:call(LogServer, {get_log, LogName},100000),
   Terms = read_continuations(Log, [], Continuation),
 
