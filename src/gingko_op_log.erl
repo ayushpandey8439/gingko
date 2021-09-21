@@ -12,7 +12,7 @@
 -type gen_from() :: any().
 
 -export([start_link/3]).
--export([append/3, read_log_entries/3]).
+-export([read_log_entries/3,append/2]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
@@ -25,11 +25,11 @@
 %%
 %% @param Log the process returned by start_link.
 %% @param Entry the log record to append.
--spec append(atom(), log_entry(), integer()) -> ok  | {error, Reason :: term()}.
-append(Key, Entry, Partition) ->
-  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry,Key, Entry}) of
+-spec append(log_entry(), integer()) -> ok  | {error, Reason :: term()}.
+append(Entry, Partition) ->
+  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
-    retry -> logger:debug("Retrying request"), append(Key, Entry, Partition);
+    retry -> logger:debug("Retrying request"), append(Entry, Partition);
     Reply ->  Reply
   end.
 %% @doc Read all log entries belonging to the given log and in a certain range with a custom accumulator.
@@ -185,7 +185,7 @@ handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == 
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({add_log_entry, Key, LogEntry}, From, State) ->
+handle_call({add_log_entry, LogEntry}, From, State) ->
 
   NextIndex = State#state.next_index,
   LogName = State#state.log_name,

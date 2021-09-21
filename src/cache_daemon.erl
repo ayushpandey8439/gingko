@@ -73,9 +73,11 @@ handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumS
       EventsUpdated = dict:update_counter(misses, 1, Events),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
       {MaterializationSnapshotTime, MaterializedObject} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
+      logger:error("MaterializationSnapshot time for first insert to cache is ~p",[MaterializationSnapshotTime]),
       {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, MaterializedObject}, Size),
       {MaterializedObject, MaterializationSnapshotTime,EventsUpdated};
     {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
+      logger:error("Cached version with timestamp ~p Min required = ~p Max required = ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
       SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime, CacheSnapshotTime),
       {MaterializationTimestamp, UpdatedMaterialization, NewEventsInternal} = if

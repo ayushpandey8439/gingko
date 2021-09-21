@@ -50,7 +50,10 @@ build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Parti
   %AfterTime = erlang:timestamp(),
   %TimeDiff = timer:now_diff(AfterTime, BeforeTime),
   %file:write(StatsFile, io_lib:fwrite("~p ; ~p ; ~p ; ~p ;",[Key, MinSnapshotTime, ContinuationObject, TimeDiff])),
-  logger:debug(#{step => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
+
+  logger:error("The log read is: ~p~n~n~n",[Data]),
+
+  logger:debug(#{step  => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
   %BeforeTimeFiltering = erlang:timestamp(),
   {Ops, CommittedOps, FilteredContinuations} = gingko_log_utilities:filter_terms_for_key(TxId, Data, Key, MinSnapshotTime, MaximumSnapshotTime, maps:new(), maps:new(),[]),
   %AfterTimeFiltering = erlang:timestamp(),
