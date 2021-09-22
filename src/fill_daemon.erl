@@ -37,7 +37,7 @@
 -spec build(term(), atom(),atom(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock(), integer()) -> {integer(),snapshot()} | {integer(),{error, {unexpected_operation, effect(), type()}}}.
 -spec build(term(), atom(),atom(),snapshot(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock(), integer()) -> {integer(),snapshot()} | {integer(),{error, {unexpected_operation, effect(), type()}}}.
 build(TxId, Key, Type, MinSnapshotTime, MaximumSnapshotTime, Partition) ->
-  build(TxId, Key, Type, materializer:create_snapshot(Type), MinSnapshotTime, MaximumSnapshotTime, Partition).
+  build(TxId, Key, Type, gingko_materializer:create_snapshot(Type), MinSnapshotTime, MaximumSnapshotTime, Partition).
 build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Partition) ->
   % Go to the index and get the minimum continuation we can start from.
   {ok, ContinuationObject} = log_index_daemon:get_continuation(Key, MinSnapshotTime, Partition),
