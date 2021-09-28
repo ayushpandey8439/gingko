@@ -81,13 +81,12 @@ materialize_clocksi_payload(Type, Snapshot, [ClocksiPayload | Rest]) ->
 -spec materialize_uncommitted(type(), snapshot(), []) -> snapshot() | {error, {unexpected_operation, effect(), type()}}.
 materialize_uncommitted(_Type, Snapshot, []) ->
     Snapshot;
-materialize_uncommitted(Type, Snapshot, [ClocksiPayload | Rest]) ->
-    Effect = ClocksiPayload#clocksi_payload.op_param,
-    case update_snapshot(Type, Snapshot, Effect) of
+materialize_uncommitted(Type, Snapshot, [#update_log_payload{op = Op}|OpsList]) ->
+    case update_snapshot(Type, Snapshot, Op) of
         {error, Reason} ->
             {error, Reason};
         {ok, Result} ->
-            materialize_uncommitted(Type, Result, Rest)
+            materialize_uncommitted(Type, Result, OpsList)
     end.
 
 %% @doc Applies updates in given order without any checks, errors are simply propagated.

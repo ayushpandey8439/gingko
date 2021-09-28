@@ -27,6 +27,7 @@
 %% @param Entry the log record to append.
 -spec append(log_entry(), integer()) -> ok  | {error, Reason :: term()}.
 append(Entry, Partition) ->
+  logger:error("appenging entry"),
   case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
     retry -> logger:debug("Retrying request"), append(Entry, Partition);

@@ -72,31 +72,26 @@ handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumS
     {error, not_exist} ->
       EventsUpdated = dict:update_counter(misses, 1, Events),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
-      {MaterializationSnapshotTime, MaterializedObject} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
-      logger:error("MaterializationSnapshot time for first insert to cache is ~p",[MaterializationSnapshotTime]),
-      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, MaterializedObject}, Size),
-      {MaterializedObject, MaterializationSnapshotTime,EventsUpdated};
+      {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
+      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, StableMaterialization}, Size),
+      {InteractiveMaterialization, MaterializationSnapshotTime,EventsUpdated};
     {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
-      logger:error("Cached version with timestamp ~p Min required = ~p Max required = ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
       SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime, CacheSnapshotTime),
       {MaterializationTimestamp, UpdatedMaterialization, NewEventsInternal} = if
          SnapshotTimeHigherMaxTime == true ->
            EventsUpdated = dict:update_counter(comp_rebuilds, 1, Events),
-           logger:debug("Cache hit, Object in the cache has a timestamp higher than the required minimum. ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
-           {Timestamp, Materialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime, Partition),
-           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
-           {Timestamp, Materialization, EventsUpdated};
+           {Timestamp, StableMaterialization, InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime, Partition),
+           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
+           {Timestamp, InteractiveMaterialization, EventsUpdated};
          SnapshotTimeLowerMinTime == true ->
            EventsUpdated = dict:update_counter(stales, 1, Events),
-           logger:debug("Cache hit, Object in the cache is stale."),
-           {Timestamp, Materialization} = fill_daemon:build(TxId, ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime,Partition),
+           {Timestamp, StableMaterialization, InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime,Partition),
            % Insert the element in the cache for later reads.
-           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, Materialization}, Size),
-           {Timestamp, Materialization, EventsUpdated};
+           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
+           {Timestamp, InteractiveMaterialization, EventsUpdated};
          true ->
            EventsUpdated = dict:update_counter(in_bounds, 1, Events),
-           logger:debug("Cache hit, Object is within bounds ~p ~p ~p",[CacheSnapshotTime, MinimumSnapshotTime, MaximumSnapshotTime]),
            UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,
            {CacheSnapshotTime, MaterializedObject, EventsUpdated}
       end,

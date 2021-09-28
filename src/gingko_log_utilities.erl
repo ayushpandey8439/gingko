@@ -110,10 +110,10 @@ handle_commit(TxId, LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxS
   NewContinuations = Continuations ++ [#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}],
   case maps:get(LogTxId, Ops, error) of
     error ->
-      logger:error("No Ops found for the transaction. LogTxnId is ~p and Operations are ~p",[LogTxId, Ops]),
+      logger:debug("No Ops found for the transaction. LogTxnId is ~p and Operations are ~p",[LogTxId, Ops]),
       filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations);
     OpsList ->
-      logger:error("Ops found for the transaction, ~p",[OpsList]),
+      logger:debug("Ops found for the transaction, ~p",[OpsList]),
       NewCommittedOpsDict = getCommittedOps(TxId, DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOpsDict),
       filter_terms_for_key(TxId, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, maps:remove(LogTxId, Ops), NewCommittedOpsDict, NewContinuations)
   end.
@@ -129,13 +129,12 @@ check_log_record_version(LogRecord) ->
   ?LOG_RECORD_VERSION = LogRecord#log_record.version,
   LogRecord.
 
-getCommittedOps(TxId, DcId, LogTxId,TxCommitTime,[],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps) ->
+getCommittedOps(_TxId, _DcId, _LogTxId, _TxCommitTime,[],_SnapshotTime, _MinSnapshotTime, _MaxSnapshotTime, CommittedOps) ->
   CommittedOps;
 getCommittedOps(TxId, DcId, LogTxId, TxCommitTime, [#update_log_payload{key = KeyInternal, type = Type, op = Op}|OpsList],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps)->
   NewCommittedOps = case (clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime) andalso
     clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)) of
       true ->
-        logger:error("Clock is enough to create an update"),
         CommittedDownstreamOp =
           #clocksi_payload{
           key = KeyInternal,
@@ -147,7 +146,6 @@ getCommittedOps(TxId, DcId, LogTxId, TxCommitTime, [#update_log_payload{key = Ke
         Ops = maps:get(KeyInternal, CommittedOps,[]),
         maps:put(KeyInternal, lists:append(Ops,[CommittedDownstreamOp]), CommittedOps);
       false ->
-        logger:error("Clock is not enough to create an update Greater than = ~p, Less than ~p",[clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime),clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)]),
         CommittedOps
   end,
   getCommittedOps(TxId, DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, NewCommittedOps).
@@ -156,6 +154,6 @@ getCommittedOps(TxId, DcId, LogTxId, TxCommitTime, [#update_log_payload{key = Ke
 
 add_ops_from_current_txn(TxId, Ops, CommittedOps) ->
   case maps:get(TxId, Ops, error) of
-    error -> logger:error("No puncommitted Operations");
-    Operations ->  logger:error("Operations are : ~p",[Operations])
+    error -> logger:debug("No uncommitted Operations");
+    Operations ->  logger:debug("Operations are : ~p",[Operations])
   end.
