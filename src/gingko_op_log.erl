@@ -12,7 +12,7 @@
 -type gen_from() :: any().
 
 -export([start_link/3]).
--export([read_log_entries/3,append/2]).
+-export([read_log_entries/2,append/2]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
@@ -42,10 +42,10 @@ append(Entry, Partition) ->
 %% @param LastIndex stop at this index, inclusive
 %% @param FoldFunction function that takes a single log entry and the current accumulator and returns the new accumulator
 %% @param Starting accumulator
--spec read_log_entries(atom(), continuation() | start, integer()) -> {ok, [#log_read{}]}.
-read_log_entries(Key, Continuation, Partition) ->
-  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {read_log_entries, Key, Continuation, Partition}) of
-    retry -> logger:debug("Retrying request"), read_log_entries(Key, Continuation, Partition);
+-spec read_log_entries(continuation() | start, integer()) -> {ok, [#log_read{}]}.
+read_log_entries(Continuation, Partition) ->
+  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {read_log_entries, Continuation}) of
+    retry -> logger:debug("Retrying request"), read_log_entries(Continuation, Partition);
     Reply -> Reply
   end.
 
@@ -236,7 +236,7 @@ handle_call(_Request, From, State)
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({read_log_entries,Key, Continuation, Partition}, _From, State) ->
+handle_call({read_log_entries, Continuation}, _From, State) ->
   LogName = State#state.log_name,
   LogServer = State#state.sync_server,
   Waiting = State#state.waiting_for_reply,

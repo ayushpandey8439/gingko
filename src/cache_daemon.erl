@@ -61,7 +61,7 @@ init({CacheIdentifier, Levels, SegmentSize, Partition}) ->
   % This dictionary is only to collect metrics about the cache events.
   D = dict:new(),
   {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers, current_size = 0, cache_events = D}}.
-  
+
 handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size = Size}) ->
   Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data, Size),
   {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};

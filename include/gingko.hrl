@@ -2,8 +2,8 @@
 
 -type key() :: term().
 -type op() :: {update, {key(), type(), term()}} | {read, {key(), type()}}. %TODO what is the term in update?
--type type() :: atom(). 
--type downstream_record() :: term(). 
+-type type() :: atom().
+-type downstream_record() :: term().
 -type snapshot() :: term().
 -type txid() :: term().
 
@@ -12,7 +12,7 @@
 -define(CACHE_DAEMON, cache_daemon).
 -define(LOG_INDEX_DAEMON, log_index_daemon).
 -define(LOGGING_MASTER, gingko_op_log).
-
+-define(CHECKPOINT_DAEMON, checkpoint_daemon).
 
 %% Version of log records being used
 -define(LOG_RECORD_VERSION, 0).

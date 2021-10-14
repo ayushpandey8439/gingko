@@ -20,5 +20,8 @@ init([Partition]) ->
     {?LOG_INDEX_DAEMON,start_link,[gingko_log_index, Partition]},
     permanent,5000,worker,[?LOG_INDEX_DAEMON]},
 
+  CheckpointDaemon = {?CHECKPOINT_DAEMON,
+    {?CHECKPOINT_DAEMON,start_link,[gingko_checkpoint, Partition]},
+    permanent,5000,worker,[?LOG_INDEX_DAEMON]},
   SupFlags = #{strategy => one_for_all, intensity => 1, period => 5},
-  {ok, {SupFlags, [Worker, CacheDaemon,LogIndexDaemon]}}.
+  {ok, {SupFlags, [Worker, CacheDaemon,LogIndexDaemon, CheckpointDaemon]}}.
