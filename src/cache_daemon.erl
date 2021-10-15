@@ -66,38 +66,35 @@ handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size =
   Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data, Size),
   {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};
 
-handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime, Partition}, _From, State = #cache_mgr_state{current_size = Size, cache_events = Events}) ->
-  {ReplyMaterializedObject, ReplySnapshotTime, NewEvents} =
-    case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
+handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime, Partition}, _From, State = #cache_mgr_state{current_size = Size}) ->
+    CheckpointData = checkpoint_daemon:get_checkpoint(ObjectKey, MinimumSnapshotTime, Partition),
+  {ReplyMaterializedObject, ReplySnapshotTime} = case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
     {error, not_exist} ->
-      EventsUpdated = dict:update_counter(misses, 1, Events),
       % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
       {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
       {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, StableMaterialization}, Size),
-      {InteractiveMaterialization, MaterializationSnapshotTime,EventsUpdated};
+      {InteractiveMaterialization, MaterializationSnapshotTime};
     {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
       SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime, CacheSnapshotTime),
-      {MaterializationTimestamp, UpdatedMaterialization, NewEventsInternal} = if
+      {MaterializationTimestamp, UpdatedMaterialization} =
+        if
          SnapshotTimeHigherMaxTime == true ->
-           EventsUpdated = dict:update_counter(comp_rebuilds, 1, Events),
            {Timestamp, StableMaterialization, InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime, Partition),
            {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
-           {Timestamp, InteractiveMaterialization, EventsUpdated};
+           {Timestamp, InteractiveMaterialization};
          SnapshotTimeLowerMinTime == true ->
-           EventsUpdated = dict:update_counter(stales, 1, Events),
            {Timestamp, StableMaterialization, InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime,Partition),
            % Insert the element in the cache for later reads.
            {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
-           {Timestamp, InteractiveMaterialization, EventsUpdated};
+           {Timestamp, InteractiveMaterialization};
          true ->
-           EventsUpdated = dict:update_counter(in_bounds, 1, Events),
            UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,
-           {CacheSnapshotTime, MaterializedObject, EventsUpdated}
+           {CacheSnapshotTime, MaterializedObject}
       end,
-      {UpdatedMaterialization, MaterializationTimestamp, NewEventsInternal}
+      {UpdatedMaterialization, MaterializationTimestamp}
   end,
-  {reply, {ok, {ObjectKey, Type, ReplyMaterializedObject, ReplySnapshotTime}}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers, cache_events = NewEvents}};
+  {reply, {ok, {ObjectKey, Type, ReplyMaterializedObject, ReplySnapshotTime}}, State#cache_mgr_state{cacheidentifiers = UpdatedIdentifiers}};
 
 handle_call({invalidate_objects, Keys}, _From, State = #cache_mgr_state{}) ->
   {CacheStore, _Size} = lists:nth(1, State#cache_mgr_state.cacheidentifiers),

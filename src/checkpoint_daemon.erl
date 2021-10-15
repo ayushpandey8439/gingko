@@ -25,9 +25,9 @@ get_checkpoint(Key, SnapshotTime, Partition) ->
   gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {get_checkpoint, Key, SnapshotTime}, infinity).
 
 trigger_checkpoint(Keys) ->
-  lists:foreach(fun(Key) ->
+  lists:foreach(fun({Key, Type}) ->
     {Partition, Host} = antidote_riak_utilities:get_key_partition(Key),
-    gen_server:cast(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {create_checkpoint, Key})
+    gen_server:cast(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {create_checkpoint, Key, Type})
                 end, Keys).
 
 %%%===================================================================
@@ -58,12 +58,11 @@ handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daem
     {non_exact_match, MaxSnapshotTime, Snapshot} ->
       {ok, MaxSnapshotTime, Snapshot};
     {error, Reason} ->
-      logger:error("Checkpoint lookup Failed with ~p",[Reason]),
       {error, not_exist}
   end,
   {reply, Response, State}.
 
-handle_cast({create_checkpoint, Key}, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable,checkpoints = CheckpointIndex}) ->
+handle_cast({create_checkpoint, Key, Type}, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable,checkpoints = CheckpointIndex}) ->
   {Partition, Host} = antidote_riak_utilities:get_key_partition(Key),
   {Key, LastCheckpointTime, CheckpointContinuation} = maps:get(Key, CheckpointIndex, {Key, vectorclock:new(), start}),
   {ok, Data} = gingko_op_log:read_log_entries(CheckpointContinuation, Partition),
@@ -73,8 +72,12 @@ handle_cast({create_checkpoint, Key}, State = #checkpoint_daemon_state{checkpoin
     PayloadForKey ->
       LastCommittedOperation = lists:last(PayloadForKey),
       LastCommittedOpSnapshotTime = LastCommittedOperation#clocksi_payload.snapshot_time,
-      Type = LastCommittedOperation#clocksi_payload.type,
-      BaseSnapshot = checkpointLookup(CheckpointTable, Key, LastCheckpointTime),
+      BaseSnapshot = case checkpointLookup(CheckpointTable, Key, LastCheckpointTime) of
+                       {error, not_exist} ->
+                         Type:new();
+                       {_, _MatchClock, MatchSnapshot} ->
+                         MatchSnapshot
+                     end,
       ClockSIMaterialization = gingko_materializer:materialize_clocksi_payload(Type, BaseSnapshot, PayloadForKey),
       checkpointSnapshot(CheckpointTable, Key, LastCommittedOpSnapshotTime, ClockSIMaterialization),
       lists:foreach(fun(#log_index{key = LogKey, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(LogKey, SnapshotTime,Continuation, Partition) end, FilteredContinuations)
@@ -131,8 +134,9 @@ open_checkpoint_store(CheckpointName) ->
 checkpointLookup(CheckpointStore, Key, Clock) ->
   case dets:lookup(CheckpointStore, {Key, Clock}) of
     {error, Reason} ->
-      logger:error("No checkpoint exists"),
       {error, Reason};
+    [] ->
+      {error, not_exist};
     Snapshots when is_list(Snapshots) ->
       searchClosestSnapshot(Snapshots, Clock, #closestMatch{clock = vectorclock:new()});
     _ ->
@@ -142,10 +146,10 @@ checkpointLookup(CheckpointStore, Key, Clock) ->
 checkpointSnapshot(CheckpointStore, Key, Clock, Snapshot) ->
   dets:insert(CheckpointStore, {Key, Clock, Snapshot}).
 
-searchClosestSnapshot([], _Clock, _MaxSnapshotFound = #closestMatch{clock = MatchClock, snapshot = MatchSnapshot}) ->
-  {non_exact_match, MatchClock, MatchSnapshot};
 searchClosestSnapshot([{_Key, Clock, Snapshot} | _Rest], Clock, _ClosestMatch) ->
   {exact_match, Clock, Snapshot};
+searchClosestSnapshot([], _Clock, _MaxSnapshotFound = #closestMatch{clock = MatchClock, snapshot = MatchSnapshot}) ->
+  {non_exact_match, MatchClock, MatchSnapshot};
 searchClosestSnapshot([{_Key, Clock1, Snapshot} | Rest], Clock, ClosestMatch = #closestMatch{clock = MatchClock}) ->
   CheckpointClockGreaterThanCurrentMatch = vectorclock:all_dots_greater(Clock1, MatchClock),
   CheckpointClockSmallerThanExpected = vectorclock:all_dots_smaller(Clock1, Clock),
