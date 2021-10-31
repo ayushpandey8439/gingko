@@ -57,7 +57,7 @@ handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daem
       {ok, SnapshotTime, Snapshot};
     {non_exact_match, MaxSnapshotTime, Snapshot} ->
       {ok, MaxSnapshotTime, Snapshot};
-    {error, Reason} ->
+    {error, _Reason} ->
       {error, not_exist}
   end,
   {reply, Response, State}.

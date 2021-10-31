@@ -58,7 +58,7 @@ init({CacheIdentifier, Levels, SegmentSize, Partition}) ->
                 end,
       CacheIdentifiers, lists:seq(1,Levels)),
 
-  % This dictionary is only to collect metrics about the cache events.
+  % This dictionary is only to collect metrics about the cache events.Hi @schimpfa , I have written sopme
   D = dict:new(),
   {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers, current_size = 0, cache_events = D}}.
 
@@ -67,13 +67,24 @@ handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size =
   {reply, {ok, Result}, State#cache_mgr_state{current_size = Size+1}};
 
 handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime, Partition}, _From, State = #cache_mgr_state{current_size = Size}) ->
-    CheckpointData = checkpoint_daemon:get_checkpoint(ObjectKey, MinimumSnapshotTime, Partition),
   {ReplyMaterializedObject, ReplySnapshotTime} = case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
     {error, not_exist} ->
-      % TODO: Go to the checkpoint store and get the last stable version and build on top of it.
-      {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
-      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, MaterializationSnapshotTime, StableMaterialization}, Size),
-      {InteractiveMaterialization, MaterializationSnapshotTime};
+      logger:error("Cache miss"),
+      {ReturnObject, CacheObject, CacheTimestamp} = case checkpoint_daemon:get_checkpoint(ObjectKey, MinimumSnapshotTime, Partition) of
+        {exact_match, MatchedSnapshotTime, MatchedSnapshot} ->
+          logger:error("Exact checkpoint"),
+          {MatchedSnapshot,MatchedSnapshot, MatchedSnapshotTime};
+        {non_exact_match, ClosestSnapshotTime, ClosestSnapshot} ->
+          logger:error("Close checkpoint"),
+          {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ClosestSnapshot, ClosestSnapshotTime, MaximumSnapshotTime,Partition),
+          {InteractiveMaterialization,StableMaterialization, MaterializationSnapshotTime};
+        {error, not_exist} ->
+          logger:error("Checkpoint miss"),
+          {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
+          {InteractiveMaterialization, StableMaterialization, MaterializationSnapshotTime}
+      end,
+      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, CacheTimestamp, CacheObject}, Size),
+      {ReturnObject, CacheTimestamp};
     {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
       SnapshotTimeHigherMaxTime  = clock_comparision:check_max_time_le(MaximumSnapshotTime, CacheSnapshotTime),
