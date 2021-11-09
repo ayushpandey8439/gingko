@@ -11,10 +11,13 @@
 -export([start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
--export([get_checkpoint/3, trigger_checkpoint/1]).
+-export([get_checkpoint/3, trigger_checkpoint/1, updateKeyInCheckpoint/2, commitTxn/2]).
 -define(SERVER, ?MODULE).
 
--record(checkpoint_daemon_state, {checkpoint_table:: atom(), checkpoints:: #{}}).%% This map will be of the form {Key, Clock}
+-record(checkpoint_daemon_state, {checkpoint_table:: atom(),
+  checkpoints:: #{}, txn_safe :: disk_log:continuation(),
+  truncation_safe::disk_log:continuation(),
+  txnset :: #{}}).
 -record(closestMatch, {clock :: vectorclock:vectorclock(), snapshot:: term()}).
 
 %%%===================================================================
@@ -26,9 +29,15 @@ get_checkpoint(Key, SnapshotTime, Partition) ->
 
 trigger_checkpoint(Keys) ->
   lists:foreach(fun({Key, Type}) ->
-    {Partition, Host} = antidote_riak_utilities:get_key_partition(Key),
+    {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
     gen_server:cast(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {create_checkpoint, Key, Type})
                 end, Keys).
+
+updateKeyInCheckpoint(Partition, TxnId) ->
+  gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {updateKey, TxnId}).
+
+commitTxn(Partition, TxnId) ->
+    gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {commitTxn, TxnId}).
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
@@ -49,7 +58,36 @@ init({CheckpointIdentifier, Partition}) ->
                       {ok, Name} -> Name;
                       {error, Reason} -> terminate(Reason, #checkpoint_daemon_state{})
                     end,
-  {ok, #checkpoint_daemon_state{checkpoint_table = CheckpointTable, checkpoints = #{}}}.
+  {ok, #checkpoint_daemon_state{checkpoint_table = CheckpointTable,
+    checkpoints = #{},
+    truncation_safe = start,
+    txn_safe = start,
+    txnset = maps:new()}}.
+
+
+handle_call({updateKey, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet,
+  txn_safe = TransactionSafePointer}) ->
+  UpdatedTransactionset = case maps:get(TxnId, TransactionSet, na) of
+    na ->
+      maps:put(TxnId, {TransactionSafePointer, ignore}, TransactionSet);
+    _ ->
+      TransactionSet
+  end,
+  {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
+
+handle_call({commitTxn, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet,
+  txn_safe = TransactionSafePointer,
+  truncation_safe = TruncationSafePointer}) ->
+  % TODO: Get the last continuation from gingko_op_log
+  UpdatedTransactionset =
+    case maps:get(TxnId, TransactionSet, na) of
+      na ->
+        TransactionSet;
+      _ ->
+        TransactionSet
+    end,
+  {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
+
 
 handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable}) ->
   Response = case checkpointLookup(CheckpointTable, Key, SnapshotTime) of

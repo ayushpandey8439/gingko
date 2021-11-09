@@ -12,12 +12,26 @@
 -type gen_from() :: any().
 
 -export([start_link/3]).
--export([read_log_entries/2,append/2]).
+-export([read_log_entries/2,append/2, append/3]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
 %% API
 %% ==============
+
+%% @doc Appends a log entry to the end of the log and modifies the latest continuation.
+%%
+%% When the function returns 'ok' the entry is guaranteed to be persistently stored.
+%%
+%% @param Log the process returned by start_link.
+%% @param Entry the log record to append.
+-spec append(term(), log_entry(), integer()) -> ok  | {error, Reason :: term()}.
+append(Key, Entry, Partition) ->
+  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, Key, Entry}) of
+    %% request got stuck in queue (server busy) and got retry signal
+    retry -> append(Key, Entry, Partition);
+    Reply ->  Reply
+  end.
 
 %% @doc Appends a log entry to the end of the log.
 %%
@@ -27,11 +41,13 @@
 %% @param Entry the log record to append.
 -spec append(log_entry(), integer()) -> ok  | {error, Reason :: term()}.
 append(Entry, Partition) ->
-  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, Entry}) of
+  case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, ignore, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
     retry -> append(Entry, Partition);
     Reply ->  Reply
   end.
+
+
 %% @doc Read all log entries belonging to the given log and in a certain range with a custom accumulator.
 %%
 %% The function works similar to lists:foldl for reading the entries.
@@ -71,7 +87,6 @@ read_log_entries(Continuation, Partition) ->
   next_index :: integer(),
 
   % Index storing the LSN with the continuation from which the read has to start.
-  % This will affect the filtering being done in line 250.
 
   current_continuation:: continuation()
 
@@ -180,12 +195,12 @@ terminate(_Reason, State) ->
     {noreply, #state{}} | %% if still recovering or index for given node behind
     {reply, {ok, [#log_read{}]}, #state{}}. %% accumulated entries
 
-handle_call({add_log_entry, _Data}, From, State) when State#state.recovering == true ->
+handle_call({add_log_entry, _Key, _Data}, From, State) when State#state.recovering == true ->
   logger:debug("[~p] Waiting for recovery: ~p", [State#state.log_name, From]),
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({add_log_entry, LogEntry}, From, State) ->
+handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continuation = CurrentContinuation}) ->
 
   NextIndex = State#state.next_index,
   LogName = State#state.log_name,
@@ -200,17 +215,16 @@ handle_call({add_log_entry, LogEntry}, From, State) ->
     data => LogEntry
   }),
 
- % Index_Continuation = case disk_log:chunk(Log, start, infinity) of
-  %  {Continuation, _Terms} ->
- %     Continuation;
- %   {Continuation, _Terms, _BadBytes} ->
- %     Continuation;
-  %  _ ->
-  %    start
-  %end,
-  %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
-  %log_index_daemon:add_to_index(Key, ignore, Index_Continuation),
-
+  LastContinuation= case Key of
+                      ignore ->
+                        CurrentContinuation;
+                      _ ->
+                        LastContinuationInt = get_last_continuation(Log, CurrentContinuation),
+                        %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
+                        {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
+                        log_index_daemon:add_to_index(Key, ignore, LastContinuationInt, Partition),
+                        LastContinuationInt
+                    end,
   ok = disk_log:alog(Log, {NextIndex, LogEntry}),
 
   % wait for sync reply
@@ -226,7 +240,8 @@ handle_call({add_log_entry, LogEntry}, From, State) ->
     % increase index counter for node by one
     next_index = NextIndex + 1,
     % empty waiting queue
-    waiting_for_reply = []
+    waiting_for_reply = [],
+    current_continuation = LastContinuation
   }};
 
 
@@ -346,4 +361,12 @@ read_continuations(Log, Terms, Cont) ->
   case disk_log:chunk(Log, Cont) of
     eof -> Terms;
     {Cont2, ReadTerms} -> read_continuations(Log, Terms ++ [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- ReadTerms], Cont2)
+  end.
+
+%% @doc reads terms from given log starting with a specific continuation and also returns the continuations with the read log entries.
+-spec get_last_continuation(log(), continuation()) -> continuation().
+get_last_continuation(Log, Cont) ->
+  case disk_log:chunk(Log, Cont) of
+    eof -> Cont;
+    {Cont2, _ReadTerms} -> get_last_continuation(Log, Cont2)
   end.
