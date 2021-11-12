@@ -69,17 +69,17 @@ handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size =
 handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumSnapshotTime, Partition}, _From, State = #cache_mgr_state{current_size = Size}) ->
   {ReplyMaterializedObject, ReplySnapshotTime} = case cacheLookup(State#cache_mgr_state.cacheidentifiers, ObjectKey) of
     {error, not_exist} ->
-      logger:error("Cache miss"),
+      logger:debug("Cache miss"),
       {ReturnObject, CacheObject, CacheTimestamp} = case checkpoint_daemon:get_checkpoint(ObjectKey, MinimumSnapshotTime, Partition) of
         {exact_match, MatchedSnapshotTime, MatchedSnapshot} ->
-          logger:error("Exact checkpoint"),
+          logger:debug("Exact checkpoint"),
           {MatchedSnapshot,MatchedSnapshot, MatchedSnapshotTime};
         {non_exact_match, ClosestSnapshotTime, ClosestSnapshot} ->
-          logger:error("Close checkpoint"),
+          logger:debug("Close checkpoint"),
           {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ClosestSnapshot, ClosestSnapshotTime, MaximumSnapshotTime,Partition),
           {InteractiveMaterialization,StableMaterialization, MaterializationSnapshotTime};
         {error, not_exist} ->
-          logger:error("Checkpoint miss"),
+          logger:debug("Checkpoint miss"),
           {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
           {InteractiveMaterialization, StableMaterialization, MaterializationSnapshotTime}
       end,

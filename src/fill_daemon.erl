@@ -45,7 +45,7 @@ build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Parti
   % TODO: Or if there is another way we can check that the cached version can be rebiult without
   % With the list of log entries for the key, we also have the list of continuation objects.
   {ok, Data} = gingko_op_log:read_log_entries(ContinuationObject, Partition),
-  logger:error(#{step  => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
+  logger:debug(#{step  => "unfiltered log", payload => Data, snapshot_timestamp => MaximumSnapshotTime}),
   {Ops, CommittedOps, FilteredContinuations} = gingko_log_utilities:filter_terms_for_key(Data, Key, MinSnapshotTime, MaximumSnapshotTime, maps:new(), maps:new(),[]),
   logger:debug(#{step => "filtered terms",transaction => TxId , ops => Ops, committed => CommittedOps}),
 
