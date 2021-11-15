@@ -15,9 +15,10 @@
 -define(SERVER, ?MODULE).
 
 -record(checkpoint_daemon_state, {checkpoint_table:: atom(),
-  checkpoints:: #{}, txn_safe :: disk_log:continuation(),
+  checkpoints:: #{},
   truncation_safe::disk_log:continuation(),
-  txnset :: #{}}).
+  txnset :: [],
+  partition}).
 -record(closestMatch, {clock :: vectorclock:vectorclock(), snapshot:: term()}).
 
 %%%===================================================================
@@ -27,17 +28,12 @@
 get_checkpoint(Key, SnapshotTime, Partition) ->
   gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {get_checkpoint, Key, SnapshotTime}, infinity).
 
-trigger_checkpoint(Keys) ->
-  lists:foreach(fun({Key, Type}) ->
-    {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
-    gen_server:cast(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {create_checkpoint, Key, Type})
-                end, Keys).
-
 updateKeyInCheckpoint(Partition, TxnId) ->
   gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {updateKey, TxnId}).
 
 commitTxn(Partition, TxnId) ->
     gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {commitTxn, TxnId}).
+
 
 %%%===================================================================
 %%% Spawning and gen_server implementation
@@ -58,35 +54,41 @@ init({CheckpointIdentifier, Partition}) ->
                       {ok, Name} -> Name;
                       {error, Reason} -> terminate(Reason, #checkpoint_daemon_state{})
                     end,
+
+  LastContinuation = gingko_op_log:get_continuation(Partition),
   {ok, #checkpoint_daemon_state{checkpoint_table = CheckpointTable,
     checkpoints = #{},
-    truncation_safe = start,
-    txn_safe = start,
-    txnset = maps:new()}}.
+    truncation_safe = LastContinuation,
+    txnset = [],
+    partition = Partition}}.
 
 
 handle_call({updateKey, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet,
-  txn_safe = TransactionSafePointer}) ->
-  UpdatedTransactionset = case maps:get(TxnId, TransactionSet, na) of
-    na ->
-      maps:put(TxnId, {TransactionSafePointer, ignore}, TransactionSet);
+  partition = Partition}) ->
+  LastContinuation = gingko_op_log:get_continuation(Partition),
+  UpdatedTransactionset = case lists:keyfind(TxnId, 1, TransactionSet) of
+    false ->
+      lists:append(TransactionSet, [{TxnId, LastContinuation}]);
     _ ->
       TransactionSet
   end,
   {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
 
 handle_call({commitTxn, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet,
-  txn_safe = TransactionSafePointer,
-  truncation_safe = TruncationSafePointer}) ->
-  % TODO: Get the last continuation from gingko_op_log
-  UpdatedTransactionset =
-    case maps:get(TxnId, TransactionSet, na) of
-      na ->
-        TransactionSet;
-      _ ->
-        TransactionSet
+  truncation_safe = TruncationSafePointer,
+  partition = Partition}) ->
+
+  {UpdatedTransactionset, NewTruncationSafe} =
+    case lists:keytake(TxnId, 1, TransactionSet) of
+      false ->
+        {TransactionSet, TruncationSafePointer}; % This case should never happen because it should be impossible to commit a non existent transaction but just to be safe it's added here.
+      {value, _, []} ->
+        LastContinuation = gingko_op_log:get_continuation(Partition),
+        {[], LastContinuation};
+      {value, _, NewTxnSet} ->
+        {NewTxnSet, element(2, lists:nth(1, NewTxnSet))}
     end,
-  {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
+  {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset, truncation_safe = NewTruncationSafe}};
 
 
 handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable}) ->
@@ -100,26 +102,7 @@ handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daem
   end,
   {reply, Response, State}.
 
-handle_cast({create_checkpoint, Key, Type}, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable,checkpoints = CheckpointIndex}) ->
-  {Partition, Host} = antidote_riak_utilities:get_key_partition(Key),
-  {Key, LastCheckpointTime, CheckpointContinuation} = maps:get(Key, CheckpointIndex, {Key, vectorclock:new(), start}),
-  {ok, Data} = gingko_op_log:read_log_entries(CheckpointContinuation, Partition),
-  {_Ops, CommittedOps, FilteredContinuations} = gingko_log_utilities:filter_terms_for_key(Data, Key, ignore, ignore, maps:new(), maps:new(),[]),
-  case maps:get(Key, CommittedOps, error) of
-    error -> [];
-    PayloadForKey ->
-      LastCommittedOperation = lists:last(PayloadForKey),
-      LastCommittedOpSnapshotTime = LastCommittedOperation#clocksi_payload.snapshot_time,
-      BaseSnapshot = case checkpointLookup(CheckpointTable, Key, LastCheckpointTime) of
-                       {error, not_exist} ->
-                         Type:new();
-                       {_, _MatchClock, MatchSnapshot} ->
-                         MatchSnapshot
-                     end,
-      ClockSIMaterialization = gingko_materializer:materialize_clocksi_payload(Type, BaseSnapshot, PayloadForKey),
-      checkpointSnapshot(CheckpointTable, Key, LastCommittedOpSnapshotTime, ClockSIMaterialization),
-      lists:foreach(fun(#log_index{key = LogKey, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(LogKey, SnapshotTime,Continuation, Partition) end, FilteredContinuations)
-  end,
+handle_cast(_Request, State = #checkpoint_daemon_state{}) ->
   {noreply, State}.
 
 handle_info(_Info, State = #checkpoint_daemon_state{}) ->
