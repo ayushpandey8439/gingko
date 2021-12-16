@@ -12,7 +12,7 @@
 -type gen_from() :: any().
 
 -export([start_link/3]).
--export([read_log_entries/2,append/2, append/3, get_continuation/1]).
+-export([read_log_entries/2,append/2, append/3]).
 -export([init/1, handle_call/3, handle_cast/2, terminate/2,  handle_info/2]).
 
 %% ==============
@@ -64,10 +64,6 @@ read_log_entries(Continuation, Partition) ->
     retry -> logger:debug("Retrying request"), read_log_entries(Continuation, Partition);
     Reply -> Reply
   end.
-
-get_continuation(Partition) ->
-  gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {get_continuation}).
-
 
 %%%===================================================================
 %%% State
@@ -219,24 +215,24 @@ handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continu
     data => LogEntry
   }),
 
-  ok = disk_log:alog(Log, {NextIndex, LogEntry}),
-
-  % wait for sync reply. Sync is used to sync the disk log with the in memory copy of the log. It does not sync with other DCs.
-  gen_server:cast(LogServer, {sync_log, LogName, self()}),
-  receive log_persisted -> ok end,
-
-  logger:debug("[~p] Log entry at ~p persisted",
-    [State#state.log_name, NextIndex]),
-
   LastContinuation= case Key of
                       ignore ->
                         CurrentContinuation;
                       _ ->
                         LastContinuationInt = get_last_continuation(Log, CurrentContinuation),
+                        %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
                         {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
                         log_index_daemon:add_to_index(Key, ignore, LastContinuationInt, Partition),
                         LastContinuationInt
                     end,
+  ok = disk_log:alog(Log, {NextIndex, LogEntry}),
+
+  % wait for sync reply
+  gen_server:cast(LogServer, {sync_log, LogName, self()}),
+  receive log_persisted -> ok end,
+
+  logger:debug("[~p] Log entry at ~p persisted",
+    [State#state.log_name, NextIndex]),
 
   % index of another request may be up to date, send retry messages
   reply_retry_to_waiting(Waiting),
@@ -248,14 +244,12 @@ handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continu
     current_continuation = LastContinuation
   }};
 
+
 handle_call(_Request, From, State)
   when State#state.recovering == true ->
   logger:debug("[~p] Read, waiting for recovery", [State#state.log_name]),
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
-
-handle_call({get_continuation}, _From, State = #state{current_continuation = Continuation}) ->
-  {reply, Continuation, State};
 
 handle_call({read_log_entries, Continuation}, _From, State) ->
   LogName = State#state.log_name,
@@ -359,6 +353,7 @@ read_all(Log, Terms, Cont) ->
     eof -> Terms;
     {Cont2, ReadTerms} -> read_all(Log, Terms ++ ReadTerms, Cont2)
   end.
+
 
 %% @doc reads terms from given log starting with a specific continuation and also returns the continuations with the read log entries.
 -spec read_continuations(log(), [#log_read{}], continuation()) -> [#log_read{}].

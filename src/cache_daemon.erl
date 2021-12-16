@@ -18,7 +18,7 @@
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 
 
--record(cache_mgr_state, {cacheidentifiers::list(), current_size:: integer(), cache_events:: dict:dict(), partition}).
+-record(cache_mgr_state, {cacheidentifiers::list(), current_size:: integer(), cache_events:: dict:dict()}).
 
 %%%===================================================================
 %%% API
@@ -60,7 +60,7 @@ init({CacheIdentifier, Levels, SegmentSize, Partition}) ->
 
   % This dictionary is only to collect metrics about the cache events.Hi @schimpfa , I have written sopme
   D = dict:new(),
-  {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers, current_size = 0, cache_events = D, partition = Partition}}.
+  {ok, #cache_mgr_state{cacheidentifiers = FinalIdentifiers, current_size = 0, cache_events = D}}.
 
 handle_call({put_in_cache, Data}, _From, State = #cache_mgr_state{current_size = Size}) ->
   Result = cacheInsert(State#cache_mgr_state.cacheidentifiers, Data, Size),
