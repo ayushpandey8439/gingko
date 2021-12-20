@@ -75,9 +75,7 @@ handle_call({updateKey, TxnId}, _From, State = #checkpoint_daemon_state{txnset =
   end,
   {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
 
-handle_call({commitTxn, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet,
-  txn_safe = TransactionSafePointer,
-  truncation_safe = TruncationSafePointer}) ->
+handle_call({commitTxn, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet}) ->
   % TODO: Get the last continuation from gingko_op_log
   UpdatedTransactionset =
     case maps:get(TxnId, TransactionSet, na) of
