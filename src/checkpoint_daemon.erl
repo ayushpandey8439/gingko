@@ -12,7 +12,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
 -export([get_checkpoint/3, trigger_checkpoint/1, updateKeyInCheckpoint/2, commitTxn/2]).
--define(SERVER, ?MODULE).
 
 -record(checkpoint_daemon_state, {checkpoint_table:: atom(),
   checkpoints:: #{},
@@ -100,7 +99,7 @@ handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daem
   {reply, Response, State}.
 
 handle_cast({create_checkpoint, Key, Type}, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable,checkpoints = CheckpointIndex}) ->
-  {Partition, Host} = antidote_riak_utilities:get_key_partition(Key),
+  {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
   {Key, LastCheckpointTime, CheckpointContinuation} = maps:get(Key, CheckpointIndex, {Key, vectorclock:new(), start}),
   {ok, Data} = gingko_op_log:read_log_entries(CheckpointContinuation, Partition),
   {_Ops, CommittedOps, FilteredContinuations} = gingko_log_utilities:filter_terms_for_key(Data, Key, ignore, ignore, maps:new(), maps:new(),[]),

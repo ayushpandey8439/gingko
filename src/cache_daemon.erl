@@ -14,7 +14,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
 
--define(SERVER, ?MODULE).
 -define(TABLE_CONCURRENCY, {read_concurrency, true}).
 
 
@@ -83,7 +82,7 @@ handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumS
           {MaterializationSnapshotTime, StableMaterialization,  InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime,Partition),
           {InteractiveMaterialization, StableMaterialization, MaterializationSnapshotTime}
       end,
-      {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, CacheTimestamp, CacheObject}, Size),
+      {UpdatedIdentifiers, _NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, CacheTimestamp, CacheObject}, Size),
       {ReturnObject, CacheTimestamp};
     {ok, {ObjectKey, Type, CacheSnapshotTime, MaterializedObject}} ->
       SnapshotTimeLowerMinTime = clock_comparision:check_min_time_gt(MinimumSnapshotTime, CacheSnapshotTime),
@@ -92,12 +91,12 @@ handle_call({get_from_cache, TxId, ObjectKey, Type, MinimumSnapshotTime,MaximumS
         if
          SnapshotTimeHigherMaxTime == true ->
            {Timestamp, StableMaterialization, InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, ignore, MaximumSnapshotTime, Partition),
-           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
+           {UpdatedIdentifiers, _NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
            {Timestamp, InteractiveMaterialization};
          SnapshotTimeLowerMinTime == true ->
            {Timestamp, StableMaterialization, InteractiveMaterialization} = fill_daemon:build(TxId, ObjectKey, Type, MaterializedObject, CacheSnapshotTime, MaximumSnapshotTime,Partition),
            % Insert the element in the cache for later reads.
-           {UpdatedIdentifiers, NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
+           {UpdatedIdentifiers, _NewSize} = cacheInsert(State#cache_mgr_state.cacheidentifiers, {ObjectKey, Type, Timestamp, StableMaterialization}, Size),
            {Timestamp, InteractiveMaterialization};
          true ->
            UpdatedIdentifiers = State#cache_mgr_state.cacheidentifiers,

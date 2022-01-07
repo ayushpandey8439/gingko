@@ -37,7 +37,7 @@
 filter_terms_for_key([], _Key, _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps, Continuations) ->
   {Ops, CommittedOps, Continuations};
 
-filter_terms_for_key([#log_read{log_entry = {LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations) ->
+filter_terms_for_key([#log_read{log_entry = {_LSN, LogRecord}, continuation = Continuation} | OtherRecords], Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps,Continuations) ->
   #log_record{log_operation = LogOperation} = check_log_record_version(LogRecord),
 
   #log_operation{tx_id = LogTxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
@@ -103,6 +103,7 @@ handle_update(LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapsho
 }.
 handle_commit(LogTxId, OpPayload, OtherRecords, Key, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict, Continuations, Continuation) ->
   #commit_log_payload{commit_time = {DcId, TxCommitTime}, snapshot_time = SnapshotTime} = OpPayload,
+  % Hint: Appending like this is O(N). Should be avoided.
   NewContinuations = Continuations ++ [#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}],
   case maps:get(LogTxId, Ops, error) of
     error ->

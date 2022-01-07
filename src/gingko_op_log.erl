@@ -27,6 +27,7 @@
 %% @param Entry the log record to append.
 -spec append(term(), log_entry(), integer()) -> ok  | {error, Reason :: term()}.
 append(Key, Entry, Partition) ->
+  %% Hint: This is a potential memory leak!
   case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, Key, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
     retry -> append(Key, Entry, Partition);
@@ -200,7 +201,7 @@ handle_call({add_log_entry, _Key, _Data}, From, State) when State#state.recoveri
   Waiting = State#state.waiting_for_reply,
   {noreply, State#state{ waiting_for_reply = Waiting ++ [From] }};
 
-handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continuation = CurrentContinuation}) ->
+handle_call({add_log_entry, Key, LogEntry}, _From, State = #state{current_continuation = CurrentContinuation}) ->
 
   NextIndex = State#state.next_index,
   LogName = State#state.log_name,
