@@ -11,12 +11,13 @@
 -export([start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
--export([get_checkpoint/3, updateKeyInCheckpoint/2, commitTxn/2]).
+-export([get_checkpoint/3, trigger_checkpoint/1, updateKeyInCheckpoint/2, commitTxn/2]).
 -define(SERVER, ?MODULE).
 
 -record(checkpoint_daemon_state, {checkpoint_table:: atom(),
-  checkpoints:: #{}, txn_safe :: disk_log:continuation(),
-  truncation_safe::disk_log:continuation(),
+  checkpoints:: #{},
+  txn_safe :: ginko:continuation(),
+  truncation_safe::ginko:continuation(),
   txnset :: #{}}).
 -record(closestMatch, {clock :: vectorclock:vectorclock(), snapshot:: term()}).
 
@@ -56,7 +57,7 @@ init({CheckpointIdentifier, Partition}) ->
   CheckpointTableName = list_to_atom(integer_to_list(Partition)++atom_to_list(CheckpointIdentifier)),
   CheckpointTable = case open_checkpoint_store(CheckpointTableName) of
                       {ok, Name} -> Name;
-                      {error, Reason} -> terminate(Reason, #checkpoint_daemon_state{})
+                      {error, Reason} -> {stop, Reason}
                     end,
   {ok, #checkpoint_daemon_state{checkpoint_table = CheckpointTable,
     checkpoints = #{},
@@ -174,9 +175,7 @@ checkpointLookup(CheckpointStore, Key, Clock) ->
     [] ->
       {error, not_exist};
     Snapshots when is_list(Snapshots) ->
-      searchClosestSnapshot(Snapshots, Clock, #closestMatch{clock = vectorclock:new()});
-    _ ->
-      {error, improper_or_conflicting_entry}
+      searchClosestSnapshot(Snapshots, Clock, #closestMatch{clock = vectorclock:new()})
   end.
 
 checkpointSnapshot(CheckpointStore, Key, Clock, Snapshot) ->

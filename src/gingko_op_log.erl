@@ -106,7 +106,7 @@ start_link(LogName, RecoveryReceiver, Partition) ->
 
 
 %% @doc Initializes the internal server state
--spec init({node(), pid()}) -> {ok, #state{}}.
+-spec init({atom(),'none' | pid(),integer()}) -> {ok, #state{}}.
 init({LogFile, RecoveryReceiver, Partition}) ->
   logger:info(#{
     action => "Starting op log server",
