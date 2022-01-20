@@ -11,13 +11,16 @@
 -export([start_link/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
   code_change/3]).
--export([get_checkpoint/3, updateKeyInCheckpoint/2, commitTxn/2]).
+-export([get_checkpoint/3, updateKeyInCheckpoint/2, commitTxn/2,trigger_checkpoint/1]).
 -define(SERVER, ?MODULE).
 
 -record(checkpoint_daemon_state, {checkpoint_table:: atom(),
-  checkpoints:: #{}, txn_safe :: disk_log:continuation(),
+  checkpoints:: #{},
+  txn_safe :: disk_log:continuation(),
   truncation_safe::disk_log:continuation(),
-  txnset :: #{}}).
+  txnset :: #{},
+  partition :: partition_id()}).
+
 -record(closestMatch, {clock :: vectorclock:vectorclock(), snapshot:: term()}).
 
 %%%===================================================================
@@ -27,11 +30,8 @@
 get_checkpoint(Key, SnapshotTime, Partition) ->
   gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {get_checkpoint, Key, SnapshotTime}, infinity).
 
-trigger_checkpoint(Keys) ->
-  lists:foreach(fun({Key, Type}) ->
-    {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
-    gen_server:cast(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {create_checkpoint, Key, Type})
-                end, Keys).
+trigger_checkpoint(Partition) ->
+    gen_server:cast(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {create_checkpoint}).
 
 updateKeyInCheckpoint(Partition, TxnId) ->
   gen_server:call(list_to_atom(atom_to_list(?CHECKPOINT_DAEMON)++integer_to_list(Partition)), {updateKey, TxnId}).
@@ -62,7 +62,8 @@ init({CheckpointIdentifier, Partition}) ->
     checkpoints = #{},
     truncation_safe = start,
     txn_safe = start,
-    txnset = maps:new()}}.
+    txnset = maps:new(),
+    partition = Partition}}.
 
 
 handle_call({updateKey, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet,
@@ -75,14 +76,15 @@ handle_call({updateKey, TxnId}, _From, State = #checkpoint_daemon_state{txnset =
   end,
   {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
 
-handle_call({commitTxn, TxnId}, _From, State = #checkpoint_daemon_state{txnset = TransactionSet}) ->
+handle_call({commitTxn, TxnId}, _From, State = #checkpoint_daemon_state{truncation_safe = TruncationSet}) ->
   % TODO: Get the last continuation from gingko_op_log
-  UpdatedTransactionset =
-    case maps:get(TxnId, TransactionSet, na) of
+  UpdatedTruncationSet =
+    case maps:get(TxnId, TruncationSet, na) of
       na ->
+        maps:put(TxnId, {TransactionSafePointer, ignore}, TransactionSet);
         TransactionSet;
       _ ->
-        TransactionSet
+        TruncationSet
     end,
   {reply, ok, State#checkpoint_daemon_state{txnset = UpdatedTransactionset}};
 
@@ -98,11 +100,10 @@ handle_call({get_checkpoint, Key, SnapshotTime}, _From, State = #checkpoint_daem
   end,
   {reply, Response, State}.
 
-handle_cast({create_checkpoint, Key, Type}, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable,checkpoints = CheckpointIndex}) ->
-  {Partition, Host} = antidote_riak_utilities:get_key_partition(Key),
-  {Key, LastCheckpointTime, CheckpointContinuation} = maps:get(Key, CheckpointIndex, {Key, vectorclock:new(), start}),
-  {ok, Data} = gingko_op_log:read_log_entries(CheckpointContinuation, Partition),
-  {_Ops, CommittedOps, FilteredContinuations} = gingko_log_utilities:filter_terms_for_key(Data, Key, ignore, ignore, maps:new(), maps:new(),[]),
+handle_cast({create_checkpoint}, State = #checkpoint_daemon_state{checkpoint_table = CheckpointTable, partition = Partition}) ->
+
+  {ok, Data} = gingko_op_log:read_log_entries(start, Partition),
+  {_Ops, CommittedOps, FilteredContinuations} = map_records_by_key(Data, ignore, ignore, maps:new()),
   case maps:get(Key, CommittedOps, error) of
     error -> [];
     PayloadForKey ->
@@ -196,3 +197,58 @@ searchClosestSnapshot([{_Key, Clock1, Snapshot} | Rest], Clock, ClosestMatch = #
       searchClosestSnapshot(Rest, Clock, ClosestMatch)
   end.
 
+map_records_by_key([], _MinSnapshotTime, _MaxSnapshotTime, Ops, CommittedOps) ->
+  %add_ops_from_current_txn(TxId, Ops, CommittedOps),
+  {Ops, CommittedOps};
+
+map_records_by_key([#log_read{log_entry = {_LSN, LogRecord}, continuation = Continuation} | OtherRecords],MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps) ->
+ LogOperation = LogRecord#log_record.log_operation,
+ #log_operation{tx_id = LogTxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
+  case OpType of
+    update ->
+      handle_update(LogTxId, OpPayload, OtherRecords, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps);
+    commit ->
+      handle_commit(LogTxId, OpPayload, OtherRecords, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps);
+    _ ->
+      map_records_by_key(OtherRecords, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps)
+  end.
+
+
+
+handle_update(LogTxId, OpPayload, OtherRecords, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOps) ->
+  TxnOps = maps:get(LogTxId, Ops, []),
+  map_records_by_key(OtherRecords, MinSnapshotTime, MaxSnapshotTime, maps:put(LogTxId, lists:append(TxnOps,[OpPayload]), Ops), CommittedOps).
+
+handle_commit(LogTxId, OpPayload, OtherRecords, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict) ->
+  #commit_log_payload{commit_time = {DcId, TxCommitTime}, snapshot_time = SnapshotTime} = OpPayload,
+  case maps:get(LogTxId, Ops, error) of
+    error ->
+      logger:debug("No Ops found for the transaction. LogTxnId is ~p and Operations are ~p",[LogTxId, Ops]),
+      map_records_by_key(OtherRecords, MinSnapshotTime, MaxSnapshotTime, Ops, CommittedOpsDict);
+    OpsList ->
+      logger:debug("Ops found for the transaction, ~p",[OpsList]),
+      NewCommittedOpsDict = getCommittedOps(DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOpsDict),
+      map_records_by_key(OtherRecords, MinSnapshotTime, MaxSnapshotTime, maps:remove(LogTxId, Ops), NewCommittedOpsDict)
+  end.
+
+
+getCommittedOps(_DcId, _LogTxId, _TxCommitTime,[],_SnapshotTime, _MinSnapshotTime, _MaxSnapshotTime, CommittedOps) ->
+  CommittedOps;
+getCommittedOps(DcId, LogTxId, TxCommitTime, [#update_log_payload{key = KeyInternal, type = Type, op = Op}|OpsList],SnapshotTime, MinSnapshotTime, MaxSnapshotTime, CommittedOps)->
+  NewCommittedOps = case (clock_comparision:check_min_time_gt(SnapshotTime, MinSnapshotTime) andalso
+    clock_comparision:check_max_time_le(SnapshotTime, MaxSnapshotTime)) of
+                      true ->
+                        CommittedDownstreamOp =
+                          #clocksi_payload{
+                            key = KeyInternal,
+                            type = Type,
+                            op_param = Op,
+                            snapshot_time = SnapshotTime,
+                            commit_time = {DcId, TxCommitTime},
+                            txid = LogTxId},
+                        Ops = maps:get(KeyInternal, CommittedOps,[]),
+                        maps:put(KeyInternal, lists:append(Ops,[CommittedDownstreamOp]), CommittedOps);
+                      false ->
+                        CommittedOps
+                    end,
+  getCommittedOps(DcId, LogTxId, TxCommitTime,OpsList, SnapshotTime, MinSnapshotTime, MaxSnapshotTime, NewCommittedOps).
