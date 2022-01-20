@@ -350,8 +350,8 @@ read_all(Log) ->
 
 read_all(Log, Terms, Cont) ->
   case disk_log:chunk(Log, Cont) of
-    eof -> Terms;
-    {Cont2, ReadTerms} -> read_all(Log, Terms ++ ReadTerms, Cont2)
+    eof -> lists:reverse(Terms);
+    {Cont2, ReadTerms} -> read_all(Log, lists:reverse(ReadTerms) ++ Terms, Cont2)
   end.
 
 
@@ -359,8 +359,8 @@ read_all(Log, Terms, Cont) ->
 -spec read_continuations(log(), [#log_read{}], continuation()) -> [#log_read{}].
 read_continuations(Log, Terms, Cont) ->
   case disk_log:chunk(Log, Cont) of
-    eof -> Terms;
-    {Cont2, ReadTerms} -> read_continuations(Log, Terms ++ [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- ReadTerms], Cont2)
+    eof -> lists:reverse(Terms);
+    {Cont2, ReadTerms} -> read_continuations(Log, [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- lists:reverse(ReadTerms)] ++ Terms , Cont2)
   end.
 
 %% @doc reads terms from given log starting with a specific continuation and also returns the continuations with the read log entries.
