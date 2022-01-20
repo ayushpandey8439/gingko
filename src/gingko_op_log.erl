@@ -43,7 +43,7 @@ append(Key, Entry, Partition) ->
 append(Entry, Partition) ->
   case gen_server:call(list_to_atom(atom_to_list(?LOGGING_MASTER)++integer_to_list(Partition)), {add_log_entry, ignore, Entry}) of
     %% request got stuck in queue (server busy) and got retry signal
-    retry -> append(Entry, Partition);
+    retry -> timer:sleep(10), append(Entry, Partition);
     Reply ->  Reply
   end.
 
@@ -220,7 +220,6 @@ handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continu
                         CurrentContinuation;
                       _ ->
                         LastContinuationInt = get_last_continuation(Log, CurrentContinuation),
-                        %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
                         {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
                         log_index_daemon:add_to_index(Key, ignore, LastContinuationInt, Partition),
                         LastContinuationInt
@@ -360,7 +359,7 @@ read_all(Log, Terms, Cont) ->
 read_continuations(Log, Terms, Cont) ->
   case disk_log:chunk(Log, Cont) of
     eof -> Terms;
-    {Cont2, ReadTerms} -> read_continuations(Log, Terms ++ [#log_read{log_entry = ReadTerm, continuation = Cont} || ReadTerm <- ReadTerms], Cont2)
+    {Cont2, ReadTerms} -> read_continuations(Log, [[#log_read{log_entry = ReadTerm, continuation = Cont}  || ReadTerm <- ReadTerms]|Terms], Cont2)
   end.
 
 %% @doc reads terms from given log starting with a specific continuation and also returns the continuations with the read log entries.
