@@ -34,10 +34,11 @@
 -export([build/6, build/7]).
 
 %% TODO: Make this an independent actor to facilitate concurrency.
--spec build(term(), atom(),atom(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock(), integer()) -> {integer(),snapshot()} | {integer(),{error, {unexpected_operation, effect(), type()}}}.
--spec build(term(), atom(),atom(),snapshot(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock(), integer()) -> {integer(),snapshot()} | {integer(),{error, {unexpected_operation, effect(), type()}}}.
+-spec build(term(), atom(), atom(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock(), integer()) -> {integer(), snapshot(), integer()}.
 build(TxId, Key, Type, MinSnapshotTime, MaximumSnapshotTime, Partition) ->
   build(TxId, Key, Type, gingko_materializer:create_snapshot(Type), MinSnapshotTime, MaximumSnapshotTime, Partition).
+
+  -spec build(term(), atom(), atom(), snapshot(), vectorclock:vectorclock() | ignore, vectorclock:vectorclock(), integer()) -> {integer(),snapshot(), integer()}.
 build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Partition) ->
   % Go to the index and get the minimum continuation we can start from.
   {ok, ContinuationObject} = log_index_daemon:get_continuation(Key, MinSnapshotTime, Partition),
@@ -65,7 +66,7 @@ build(TxId, Key, Type, BaseSnapshot, MinSnapshotTime, MaximumSnapshotTime, Parti
     false ->
       % Index the object materialization with the continuation
       %TODO Possible optimization could be to only index one item instead of all the operations.
-      lists:foreach(fun(#log_index{key = Key, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(Key, SnapshotTime,Continuation, Partition) end, FilteredContinuations),
+      lists:foreach(fun(#log_index{key = Key2, snapshot_time = SnapshotTime, continuation = Continuation}) -> log_index_daemon:add_to_index(Key2, SnapshotTime,Continuation, Partition) end, FilteredContinuations),
       LastCommittedOperation = lists:last(PayloadForKey),
       LastCommittedOpSnapshotTime = LastCommittedOperation#clocksi_payload.snapshot_time,
       ClockSIMaterialization = gingko_materializer:materialize_clocksi_payload(Type, BaseSnapshot, PayloadForKey),
