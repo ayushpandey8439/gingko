@@ -236,7 +236,7 @@ handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continu
 
   % index of another request may be up to date, send retry messages
   reply_retry_to_waiting(Waiting),
-  {reply, {ok, NextIndex}, State#state{
+  {reply, {ok, NextIndex, LastContinuation}, State#state{
     % increase index counter for node by one
     next_index = NextIndex + 1,
     % empty waiting queue
