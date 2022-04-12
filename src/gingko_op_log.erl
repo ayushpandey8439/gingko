@@ -215,30 +215,32 @@ handle_call({add_log_entry, Key, LogEntry}, From, State = #state{current_continu
     data => LogEntry
   }),
 
-  LastContinuation= case Key of
+  {LastContinuation, NewNextIndex} = case Key of
                       ignore ->
-                        CurrentContinuation;
+                        {CurrentContinuation, NextIndex};
                       _ ->
                         LastContinuationInt = get_last_continuation(Log, CurrentContinuation),
-                        %TODO Send the key to the log indexer and insert the first entry for the chunk into the index.
                         {Partition, _Host} = antidote_riak_utilities:get_key_partition(Key),
                         log_index_daemon:add_to_index(Key, ignore, LastContinuationInt, Partition),
-                        LastContinuationInt
+                        #log_record{log_operation = LogOperation} = LogEntry,
+                        #log_operation{tx_id = LogTxId, op_type = OpType, log_payload = OpPayload} = LogOperation,
+                        ok = disk_log:log(Log, {NextIndex, #log_record{version = ?LOG_RECORD_VERSION,log_operation = #log_operation{tx_id=LogTxId, op_type=start,log_payload = #start_log_payload{}}}}),
+                        {LastContinuationInt, NextIndex+1 }
                     end,
-  ok = disk_log:alog(Log, {NextIndex, LogEntry}),
 
+  ok = disk_log:log(Log, {NewNextIndex, LogEntry}),
   % wait for sync reply
   gen_server:cast(LogServer, {sync_log, LogName, self()}),
   receive log_persisted -> ok end,
 
   logger:debug("[~p] Log entry at ~p persisted",
-    [State#state.log_name, NextIndex]),
+    [State#state.log_name, NewNextIndex]),
 
   % index of another request may be up to date, send retry messages
   reply_retry_to_waiting(Waiting),
   {reply, {ok, NextIndex, LastContinuation}, State#state{
     % increase index counter for node by one
-    next_index = NextIndex + 1,
+    next_index = NewNextIndex + 1,
     % empty waiting queue
     waiting_for_reply = [],
     current_continuation = LastContinuation
